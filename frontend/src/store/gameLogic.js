@@ -124,6 +124,7 @@ function updatePieceStateLogic(
   let outCount = player.outCount;
   let winCount = player.winCount;
   let winPosn = player.winPosn;
+  let nextStatus = state.meta.status;
 
   let newGlobalWinLast = state.meta.winLast;
 
@@ -144,6 +145,10 @@ function updatePieceStateLogic(
         newGlobalWinLast += 1;
         winPosn = newGlobalWinLast;
         console.log(`Player ${curColor} finished! Rank: ${winPosn}`);
+      }
+      
+      if (newGlobalWinLast >= state.meta.playerCount - 1 && state.meta.playerCount > 1) {
+        nextStatus = "FINISHED";
       }
     }
 
@@ -170,6 +175,7 @@ function updatePieceStateLogic(
     meta: {
       ...state.meta,
       winLast: newGlobalWinLast,
+      status: nextStatus,
     },
     players: {
       ...state.players,
@@ -294,12 +300,57 @@ const initialState = {
     timeOut: false,
   },
   players: {
-    R: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [], pieceRef: new Map(), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#FF3131" },
-    B: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [], pieceRef: new Map(), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#00D4FF" },
-    Y: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [-1, -1, -1, -1], pieceRef: new Map(), homeCount: 2, outCount: 0, winCount: 0, winPosn: 0, color: "#ffc400" },
-    G: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [], pieceRef: new Map(), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#39FF14" },
+    R: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [-1, -1, -1, -1], pieceRef: new Map([[79, 1], [78, 1], [77, 1], [76, 1]]), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#FF3131" },
+    B: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [-1, -1, -1, -1], pieceRef: new Map([[83, 1], [82, 1], [81, 1], [80, 1]]), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#00D4FF" },
+    Y: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [-1, -1, -1, -1], pieceRef: new Map([[87, 1], [86, 1], [85, 1], [84, 1]]), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#ffc400" },
+    G: { socketId: '', name: "", userId: "", profile: "", online: false, pieceIdx: [-1, -1, -1, -1], pieceRef: new Map([[91, 1], [90, 1], [89, 1], [88, 1]]), homeCount: 4, outCount: 0, winCount: 0, winPosn: 0, color: "#39FF14" },
   },
 };
+
+function endGameLogic(state) {
+  // If the game is already finished or hasn't started, do nothing
+  if (state.meta.status === "FINISHED" || state.meta.status === "WAITING") return state;
+
+  return {
+    ...state,
+    meta: {
+      ...state.meta,
+      status: "FINISHED",
+    },
+    move: {
+      ...state.move,
+      rollAllowed: false,
+      moveAllowed: false,
+      moving: false,
+      turn: null, // Clear active turn
+    },
+  };
+}
+
+function syncStateLogic(state, serverState) {
+  // Re-hydrate the pieceRef Maps because JSON stringifies them as Arrays
+  const hydratedPlayers = {};
+  ["R", "B", "Y", "G"].forEach(c => {
+    if (serverState.players[c]) {
+      hydratedPlayers[c] = {
+        ...serverState.players[c],
+        pieceRef: new Map(serverState.players[c].pieceRef)
+      };
+    }
+  });
+  
+  // Ensure Sets are hydrated
+  const hydratedMeta = {
+    ...serverState.meta,
+    onBoard: new Set(serverState.meta.onBoard)
+  };
+
+  return {
+    meta: hydratedMeta,
+    move: serverState.move,
+    players: { ...state.players, ...hydratedPlayers }
+  };
+}
 
 const gameActions = {
   initiateGame: (gameObj) => 
@@ -320,7 +371,11 @@ const gameActions = {
   setMoving: (val) => 
     useGameStore.setState((state) => setMovingLogic(state, val), false, "setMoving"),
     
-  resetStore: () => useGameStore.setState(initialState, false, "resetStore")
+  resetStore: () => useGameStore.setState(initialState, false, "resetStore"),
+  
+  syncGameState: (serverState) => useGameStore.setState((state) => syncStateLogic(state, serverState), false, "syncGameState"),    
+  
+  setMoving: (val) => useGameStore.setState((state) => ({ move: { ...state.move, moving: val } }), false, "setMoving"),
 };
 
 

@@ -2,21 +2,39 @@ import jwt from "jsonwebtoken";
 import ImageKit from 'imagekit';
 import User from "../models/userModel.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import { redis } from "../config/redis.js"; 
+import redis from "../config/redis.js"; 
 import bcrypt from "bcrypt";
-import crypto from "crypto"; // Native Node module for secure tokens
+import crypto from "crypto";
 
-// // ==========================================
-// // LOGIN LOGIC
-// // ==========================================
+// ==========================================
+// CONFIGURATIONS & HELPERS
+// ==========================================
+
+const imagekit = new ImageKit({
+    publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+    privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+    urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+});
+
+const getCookieOptions = () => ({
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production", 
+    sameSite: "strict",
+    maxAge: 30 * 24 * 60 * 60 * 1000, 
+});
+
+const generateToken = () => crypto.randomBytes(32).toString("hex");
+
+// ==========================================
+// LOGIN LOGIC
+// ==========================================
 const loginHandler = async (req, res, next) => {
     try {
         const { email, password } = req.body;
 
-        const user = await User.findOne({ $or: [{ email }, { username:email }] }).select("+password");
+        const user = await User.findOne({ $or: [{ email }, { username: email }] }).select("+password");
         if (!user) return res.status(401).json({ success: false, message: "Invalid credentials" });
 
-        // Block unverified users from playing
         if (!user.isVerified) {
             return res.status(403).json({ 
                 success: false, 
@@ -45,30 +63,71 @@ const loginHandler = async (req, res, next) => {
     }
 };
 
-// // ==========================================
-// // LOGOUT LOGIC
-// // ==========================================
+// ==========================================
+// LOGOUT LOGIC
+// ==========================================
 const logoutHandler = async (req, res) => {
-    res.clearCookie("token", {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-    });
-
+    res.clearCookie("token", getCookieOptions());
     res.status(200).json({ success: true, message: "Logged out successfully" });
 };
 
-// // ==========================================
-// // UPDATE PROFILE LOGIC
-// // ==========================================
+// ==========================================
+// UPDATE PROFILE LOGIC
+// ==========================================
 const updateProfile = async (req, res, next) => {
     try {
         const userId = req.user.id; 
-        const { fullname } = req.body; // Mobile removed from body
+        const { fullname } = req.body;
         const file = req.file;
 
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+        // If user is trying to update but isn't verified, re-send link
+        if(!user?.isVerified) {
+            const verificationToken = generateToken();
+            await redis.set(`verify:${verificationToken}`, user.email, { EX: 3600 });
+            const verificationUrl = `http://localhost:5173/options/signin?token=${verificationToken}`;
+
+            await sendEmail({
+                email: user.email,
+                subject: `SYSTEM: Identity Uplink Required for Pilot ${user.fullname}`,
+                message: `
+                    <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
+                        <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
+                            <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
+                                [ UPLINK_PROTOCOL: v3.0 ]
+                            </h2>
+                            <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
+                        </div>
+                        <div style="line-height: 1.6;">
+                            <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
+                                Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname || user.fullname}</span>
+                            </h1>
+                            <p style="font-size: 14px; color: #a0a0a0;">
+                                Your neural signature has been detected. To finalize your integration into the 
+                                <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
+                                pilot identity through our secure verification node.
+                            </p>
+                            <div style="text-align: center; margin: 40px 0;">
+                                <a href="${verificationUrl}" 
+                                style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
+                                INITIALIZE_NEURAL_LINK
+                                </a>
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
+                                <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
+                                If this uplink was not requested by you, please terminate the connection and ignore this data packet.
+                            </div>
+                        </div>
+                        <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+                            &copy; 2026 Ludo Neo Grid Operations // Sector 7
+                        </div>
+                    </div>
+                `,
+            });
+            return res.json({success: false, message: "Email not verified. Link sent to registered email."});
+        }
 
         if (file) {
             const uploadResponse = await imagekit.upload({
@@ -80,7 +139,6 @@ const updateProfile = async (req, res, next) => {
         }
 
         if (fullname) user.fullname = fullname;
-
         await user.save();
 
         res.status(200).json({
@@ -93,29 +151,25 @@ const updateProfile = async (req, res, next) => {
                 avatar: user.avatar
             }
         });
-
     } catch (error) {
         next(error);
     }
 };
 
-// // ==========================================
-// // DELETE ACCOUNT LOGIC (FULL WIPE)
-// // ==========================================
+// ==========================================
+// DELETE ACCOUNT LOGIC
+// ==========================================
 const deleteAccount = async (req, res, next) => {
     try {
         const userId = req.user.id; 
-
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-        // Wipe from Redis (Session data, OTPs, Game States)
         const keys = await redis.keys(`*:${user.email}*`);
         if (keys.length > 0) await redis.del(...keys);
         await redis.del(`status:${userId}`);
 
         await User.findByIdAndDelete(userId);
-
         res.clearCookie("token", getCookieOptions());
 
         res.status(200).json({ 
@@ -127,12 +181,11 @@ const deleteAccount = async (req, res, next) => {
     }
 };
 
-
 const initialFetch = async(req, res, next)=>{
     try {
-        const userId = req.user.id;
-        const user = await User.findById(userId);
+        const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
         res.status(200).json({
             success: true,
             user: {
@@ -148,50 +201,33 @@ const initialFetch = async(req, res, next)=>{
     }
 }
 
-// // ==========================================
-// // CHECK USERNAME AVAILABILITY
-// // ==========================================
+// ==========================================
+// CHECK USERNAME AVAILABILITY
+// ==========================================
 const checkUsername = async (req, res, next) => {
     try {
-        const { username } = req.query;
+        const { query } = req.query; 
 
-        if (!username || username.length < 3) {
+        if (!query || query.length < 5) {
             return res.status(400).json({ 
                 success: false, 
-                message: "Username too short for validation." 
+                message: "Search query too short." 
             });
         }
+        
+        const safeQuery = query.trim();
+        const searchRegex = new RegExp(`^${safeQuery}$`, 'i'); // Exact match for availability
 
-        const userExists = await User.exists({ 
-            username: username.toLowerCase().trim() 
+        const userExists = await User.exists({ username: searchRegex });
+
+        return res.status(200).json({ 
+            success: !!userExists, 
+            message: userExists ? "Username already exists" : "Username available"
         });
-
-        res.status(200).json({
-            success: true,
-            available: !userExists 
-        });
-
     } catch (error) {
         next(error);
     }
 };
-
-
-const imagekit = new ImageKit({
-    publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-    privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-    urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
-});
-
-const getCookieOptions = () => ({
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production", 
-    sameSite: "strict",
-    maxAge: 30 * 24 * 60 * 60 * 1000, 
-});
-
-// Helper to generate a secure random token
-const generateToken = () => crypto.randomBytes(32).toString("hex");
 
 // ==========================================
 // REGISTER & SEND VERIFICATION LINK
@@ -214,12 +250,8 @@ const registerHandler = async (req, res, next) => {
             avatarUrl = uploadResponse.url;
         }
 
-        // 1. Generate secure token
         const verificationToken = generateToken();
-        // 2. Store in Redis (Token as key, Email as value) for 1 hour
-        await redis.setex(`verify:${verificationToken}`, 3600, email);
-
-        // 3. Create the verification URL (Pointing to your Frontend)
+        await redis.set(`verify:${verificationToken}`, email, { EX: 3600 });
         const verificationUrl = `http://localhost:5173/options/signin?token=${verificationToken}`;
 
         await sendEmail({
@@ -233,31 +265,26 @@ const registerHandler = async (req, res, next) => {
                         </h2>
                         <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
                     </div>
-
                     <div style="line-height: 1.6;">
                         <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
                             Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname}</span>
                         </h1>
-                        
                         <p style="font-size: 14px; color: #a0a0a0;">
                             Your neural signature has been detected. To finalize your integration into the 
                             <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
                             pilot identity through our secure verification node.
                         </p>
-
                         <div style="text-align: center; margin: 40px 0;">
                             <a href="${verificationUrl}" 
                             style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
                             INITIALIZE_NEURAL_LINK
                             </a>
                         </div>
-
                         <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
                             <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
                             If this uplink was not requested by you, please terminate the connection and ignore this data packet.
                         </div>
                     </div>
-
                     <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
                         &copy; 2026 Ludo Neo Grid Operations // Sector 7
                     </div>
@@ -275,23 +302,18 @@ const registerHandler = async (req, res, next) => {
 };
 
 // ==========================================
-// VERIFY EMAIL LINK (Triggered by Frontend)
+// VERIFY EMAIL LINK
 // ==========================================
 const verifyEmail = async (req, res, next) => {
     try {
-        const { token } = req.query; // Token sent from frontend via query params
-        
-        // 1. Find email associated with token
+        const { token } = req.query; 
         const email = await redis.get(`verify:${token}`);
 
         if (!email) {
             return res.status(400).json({ success: false, message: "Link expired or invalid node." });
         }
 
-        // 2. Mark user as verified
         await User.findOneAndUpdate({ email }, { isVerified: true });
-        
-        // 3. Purge token
         await redis.del(`verify:${token}`);
 
         res.status(200).json({ success: true, message: "Neural link established. Access granted." });
@@ -299,7 +321,7 @@ const verifyEmail = async (req, res, next) => {
 };
 
 // ==========================================
-// FORGOT PASSWORD (SEND RECOVERY LINK)
+// FORGOT PASSWORD
 // ==========================================
 const forgotPassword = async (req, res, next) => {
     try {
@@ -308,58 +330,52 @@ const forgotPassword = async (req, res, next) => {
         if (!user) return res.status(404).json({ success: false, message: "Identity node not found." });
 
         const resetToken = generateToken();
-        await redis.setex(`reset:${resetToken}`, 3600, email);
-
+        await redis.set(`reset:${resetToken}`, email, { EX: 3600 });
         const resetUrl = `http://localhost:5173/options/signin?reset=${resetToken}&id=${user.email}&mode=reset`;
 
-    await sendEmail({
-        email,
-        subject: "SYSTEM: Access Cipher Recovery - Ludo Neo",
-        message: `
-            <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #fff200; border-radius: 8px; max-width: 600px; margin: auto;">
-                <div style="border-bottom: 1px solid #332b00; padding-bottom: 20px; margin-bottom: 20px;">
-                    <h2 style="color: #fff200; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
-                        [ CONFIG_PROTOCOL: CIPHER_SYNC ]
-                    </h2>
-                    <p style="font-size: 12px; color: #665500; margin: 5px 0 0 0;">ACCESS_RECOVERY_NODE: ${new Date().toISOString()}</p>
-                </div>
-
-                <div style="line-height: 1.6;">
-                    <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
-                        Neural <span style="color: #fff200;">Cipher Reset</span> Initiated
-                    </h1>
-                    
-                    <p style="font-size: 14px; color: #a0a0a0;">
-                        A request to reconfigure your access credentials has been authorized. 
-                        To override your current identity node and establish a new secure cipher, click the terminal link below:
-                    </p>
-
-                    <div style="text-align: center; margin: 40px 0;">
-                        <a href="${resetUrl}" 
-                        style="background: #fff200; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 20px rgba(255, 242, 0, 0.4); display: inline-block; text-transform: uppercase;">
-                        OVERRIDE_CIPHER_NOW
-                        </a>
+        await sendEmail({
+            email,
+            subject: "SYSTEM: Access Cipher Recovery - Ludo Neo",
+            message: `
+                <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #fff200; border-radius: 8px; max-width: 600px; margin: auto;">
+                    <div style="border-bottom: 1px solid #332b00; padding-bottom: 20px; margin-bottom: 20px;">
+                        <h2 style="color: #fff200; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
+                            [ CONFIG_PROTOCOL: CIPHER_SYNC ]
+                        </h2>
+                        <p style="font-size: 12px; color: #665500; margin: 5px 0 0 0;">ACCESS_RECOVERY_NODE: ${new Date().toISOString()}</p>
                     </div>
-
-                    <div style="background: rgba(255, 242, 0, 0.05); padding: 15px; border-left: 3px solid #fff200; font-size: 12px; color: #888;">
-                        <strong>CONFIG_ALERT:</strong> This override link is valid for <span style="color: #fff;">60 minutes</span>. 
-                        If this configuration change was not authorized by your pilot identity, please ignore this transmission to maintain current cipher integrity.
+                    <div style="line-height: 1.6;">
+                        <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
+                            Neural <span style="color: #fff200;">Cipher Reset</span> Initiated
+                        </h1>
+                        <p style="font-size: 14px; color: #a0a0a0;">
+                            A request to reconfigure your access credentials has been authorized. 
+                            To override your current identity node and establish a new secure cipher, click the terminal link below:
+                        </p>
+                        <div style="text-align: center; margin: 40px 0;">
+                            <a href="${resetUrl}" 
+                            style="background: #fff200; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 20px rgba(255, 242, 0, 0.4); display: inline-block; text-transform: uppercase;">
+                            OVERRIDE_CIPHER_NOW
+                            </a>
+                        </div>
+                        <div style="background: rgba(255, 242, 0, 0.05); padding: 15px; border-left: 3px solid #fff200; font-size: 12px; color: #888;">
+                            <strong>CONFIG_ALERT:</strong> This override link is valid for <span style="color: #fff;">60 minutes</span>. 
+                            If this configuration change was not authorized by your pilot identity, please ignore this transmission to maintain current cipher integrity.
+                        </div>
+                    </div>
+                    <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+                        &copy; 2026 Ludo Neo Grid Operations // Access Division
                     </div>
                 </div>
-
-                <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
-                    &copy; 2026 Ludo Neo Grid Operations // Access Division
-                </div>
-            </div>
-        `,
-    });
+            `,
+        });
 
         res.status(200).json({ success: true, message: "Recovery link broadcast to node." });
     } catch (error) { next(error); }
 };
 
 // ==========================================
-// RESET PASSWORD (VIA TOKEN)
+// RESET PASSWORD
 // ==========================================
 const resetPassword = async (req, res, next) => {
     try {
@@ -375,28 +391,37 @@ const resetPassword = async (req, res, next) => {
 
         await User.findOneAndUpdate({ email }, { password: hashedPassword });
         await redis.del(`reset:${token}`);
-        // console.log(newPassword)
+        
         res.status(200).json({ success: true, message: "Access cipher updated successfully." });
     } catch (error) { next(error); }
 };
 
-// Add this to server/src/handlers/authHandler.js
+// ==========================================
+// SEARCH USERS
+// ==========================================
 const searchUsers = async (req, res, next) => {
     try {
-        const { query } = req.query;
+        const { query, excludeName } = req.query;
         if (!query || query.length < 2) {
             return res.status(200).json({ success: true, users: [] });
         }
 
-        // Search by username or fullname (case-insensitive)
+        const searchRegex = new RegExp(query, 'i'); 
+
         const users = await User.find({
-            $or: [
-                { username: { $regex: query, $options: "i" } },
-                { fullname: { $regex: query, $options: "i" } }
+            $and: [
+                {
+                    $or: [
+                        { username: searchRegex },
+                        { fullname: searchRegex }
+                    ]
+                },
+                // Corrected exclusion logic using $ne
+                { username: { $ne: excludeName } }
             ]
         })
         .limit(5)
-        .select("username fullname avatar"); // Only return necessary data
+        .select("username fullname avatar");
 
         res.status(200).json({ success: true, users });
     } catch (error) {
@@ -404,10 +429,6 @@ const searchUsers = async (req, res, next) => {
     }
 };
 
-// Update your authRoute.js to include:
-// authRoute.get("/search-users", tokenChecker, searchUsers);
-
-/* Keep loginHandler, logoutHandler, updateProfile, deleteAccount, and checkUsername the same */
 export { 
     loginHandler, 
     registerHandler, 

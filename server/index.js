@@ -10,8 +10,13 @@ import { connectMongo } from "./connection.js";
 import authRoute from "./src/routes/authRoute.js";
 import User from "./src/models/userModel.js";
 import ErrorLog from "./src/models/errorModel.js";
-import socketMain from "./src/sockets/socketMain.js";
-import { redis } from "./src/config/redis.js";
+
+// Socket and Game Logic Imports
+import registerGameHandlers from "./src/sockets/gameHandlers.js";
+import redisGameInitiate from "./src/handlers/gameHandlers.js"; // Fixed typo from 'redix' to 'redis'
+
+// Standardized Redis import (Ensure your redis.js exports your client)
+import redis from "./src/config/redis.js"; 
 
 dotenv.config();
 
@@ -34,7 +39,7 @@ const corsOptions = {
 };
 
 // ===== Middlewares =====
-app.use(cors(corsOptions)); // Using the detailed options
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -48,43 +53,54 @@ const io = new Server(server, {
 
 // Socket Middleware: Verify User via JWT Cookie
 io.use((socket, next) => {
-    // Note: socket.request.cookies requires cookie-parser to be compatible
-    // If using standard socket.io, you might need to parse headers manually or use a wrapper
     const token = socket.request.headers.cookie 
         ? socket.request.headers.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] 
         : null;
 
-    if (!token) return next(); // Allow connection, but user won't be authenticated
+    if (!token) return next(); // Allow guest connection
 
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-        if (err) return next(); // Token invalid
-        socket.user = decoded; // Attach user data to socket
+        if (err) return next(); // Token invalid, proceed as guest
+        socket.user = decoded;  // Attach authenticated user data to socket
         next();
     });
 });
 
-// Initialize External Socket Logic
-socketMain(io);
+// Initialize External Socket Logic for the Ludo Game
+registerGameHandlers(io);
 
 // ===== HTTP Routes =====
+
+// Root Route
 app.get('/', async (req, res) => {
-    let users=await User.find({});
-    res.send(users);
+    try {
+        let users = await User.find({});
+        res.send(users);
+    } catch (err) {
+        res.status(500).send("Error fetching users");
+    }
 });
 
-// Auth Routes (Use .use for routers)
-app.use('/api/auth', authRoute);
-
+// Health check
 app.get("/test", (req, res) => res.send({ msg: "Server running well!!!" }));
 
+// Check Redis Connection (Updated to modern async/await syntax)
+app.get("/redis", async (req, res) => {
+    try {
+        await redis.set('foo', 'bar');
+        const reply = await redis.get('foo');
+        res.send({ msg: "Redis is connected & running well!!! Value: " + reply });
+    } catch (err) {
+        res.status(500).send({ error: "Redis error", details: err.message });
+    }
+});
 
-app.get("/redis", (req, res) =>{
-  redis.set('foo', 'bar');
-  redis.get('foo', (err, reply) => {
-    res.send({ msg: "Server running well!!! "+reply })
-  });
-  
-} );
+// Auth Routes
+app.use('/api/auth', authRoute);
+
+// Ludo Setup Route (Called by GameSetup.jsx to create the game matrix in Redis)
+app.post('/api/create-game', redisGameInitiate);
+
 
 // ===== Global Error Handler =====
 app.use(async (err, req, res, next) => {
@@ -96,7 +112,7 @@ app.use(async (err, req, res, next) => {
             method: req.method,
             url: req.originalUrl,
             userId: req.user?.id,
-            payload: {...(req.body),password:"[PASSWORD]"},
+            payload: { ...(req.body), password: "[REDACTED]" }, // Better standard than [PASSWORD]
             metadata: { userAgent: req.get('User-Agent') }
         });
     } catch (logError) {
@@ -109,6 +125,7 @@ app.use(async (err, req, res, next) => {
     });
 });
 
+// ===== Start Server =====
 server.listen(PORT, () => {
-    console.log(`Server running on port: ${PORT}`);
+    console.log(`🚀 Neural Link Server running on port: ${PORT}`);
 });

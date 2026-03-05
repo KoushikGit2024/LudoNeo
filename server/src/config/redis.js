@@ -41,4 +41,4 @@ redis.on('error', (err) => {
     }
 });
 
-export { redis };
+export default redis;

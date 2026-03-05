@@ -134,7 +134,7 @@ const PlayerBoard = memo(({ playing, left, turn = 0, idx, timeOut, moveAllowed, 
         // Adjusted duration for realism, or keep your logic
         // Note: Your original code had duration: 1. I kept the logic structure but 
         // usually Ludo timers are longer. If you strictly want 1s, change this back to 1.
-        duration: 1, 
+        duration: 0.11, 
         ease: "linear",
         onComplete: () => {
           if (cancelled) return;

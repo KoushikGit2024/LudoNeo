@@ -27,8 +27,8 @@ const userSchema = new mongoose.Schema({
     },
     avatar: { type: String, default: "" },
     isVerified: { type: Boolean, default: false },
-    otp: { type: String }, // Optional: only if you prefer DB over Redis
-    otpExpires: { type: Date },
+    // otp: { type: String }, // Optional: only if you prefer DB over Redis
+    // otpExpires: { type: Date },
     role: { type: String, enum: ["user", "admin"], default: "user" }
 }, { timestamps: true });
 

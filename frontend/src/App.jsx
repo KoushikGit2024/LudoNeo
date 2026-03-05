@@ -13,7 +13,7 @@ import "react-toastify/dist/ReactToastify.css";
 import {useEffect} from 'react'
 import api from './api/axiosConfig'
 import { updateUserInfo } from './store/userActions'
-import GameSetup from './components/pageComponents/GameSetup'
+import GameSetup from './components/sharedBoardComponents/GameSetup'
 // import LudoOffline from './components/LudoOffline'
 // import LudoGame from './assets/New'
 //---------------------------------------

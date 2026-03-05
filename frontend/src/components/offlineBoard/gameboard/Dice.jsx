@@ -53,7 +53,7 @@ const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, win
       setTimeout(() => {
         afterDiceRoll(final);
       }, 500);
-    }, 1900);
+    }, 0.10);//1900
   };
 
   const afterDiceRoll = (final) => {
@@ -87,7 +87,7 @@ const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, win
       rollDice();
       updateTimeOut(false);
     }
-    console.log('hi')
+    // console.log('hi')
   }, [timeOut]);
 
   // --- VISUAL & THEME CONSTANTS ---

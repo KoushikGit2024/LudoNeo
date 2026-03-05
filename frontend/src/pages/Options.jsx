@@ -339,6 +339,10 @@ const Options = () => {
       form.append('fullname', formData.fullname);
       if (finalImage?.startsWith('data:')) form.append('avatar', dataURLtoBlob(finalImage), 'update.jpg');
       const res = await api.put('/api/auth/update-profile', form);
+      if(!res.data.success){
+        toast.error(res.data.message);
+        return;
+      }
       updateUserInfo(res.data.user);
       toast.success("NEURAL PROFILE SYNCHRONIZED.");
     } catch (err) { toast.error("SYNC FAILURE."); }
