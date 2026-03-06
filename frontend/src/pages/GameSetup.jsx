@@ -9,16 +9,19 @@ import GradientText from '@/components/customComponents/GradientText';
 import gameActions from '@/store/gameLogic';
 import api from '@/api/axiosConfig';
 import "@/styles/options.css";
+import useUserStore from '@/store/userStore';
 
-const GameSetup = (props) => {
+// Removed props.setProceed logic
+const GameSetup = () => {
   const { boardType } = useParams();
   const navigate = useNavigate();
-  
-  // Safely extract primitive values to avoid dependency reference loops
-  const myName = props.info?.username || 'Me';
-  const myEmail = props.info?.email || '';
-  const myAvatar = props.info?.avatar || '/defaultProfile.png';
 
+  const info = useUserStore((state) => state.info);
+  
+  const myName = info?.username || 'Me';
+  const myEmail = info?.email || '';
+  const myAvatar = info?.avatar || '/defaultProfile.png';
+  
   const isPOI = boardType === 'poi' || boardType === 'online';
   const isPOF = boardType === 'pof';
   const isBot = boardType === 'bot';
@@ -29,7 +32,6 @@ const GameSetup = (props) => {
     pof: "ELITE_LINK",
     bot: "CORE_CHALLENGE",
     offline: "LOCAL_GRID",
-    online: "TOTAL_WAR"
   };
 
   const colorMap = [
@@ -39,9 +41,8 @@ const GameSetup = (props) => {
     { id: 'G', hex: "#39FF14" }
   ];
 
-  const BOT_NAMES = ["NeoCore", "ZeroX", "OmegaUnit", "HexBot"];
+  const BOT_NAMES = ["NeoCore", "ZeroX", "OmegaUnit", "HexBot","Vexo-7","Nano-8","Zetta-1","Aura-X"];
 
-  // ---------------- State ----------------
   const [selectedColors, setSelectedColors] = useState(isPOI ? ['R','B','Y','G'] : ['R','Y']);
   const [humanColor, setHumanColor] = useState((isBot || isPOF) ? 'R' : null);
   
@@ -58,9 +59,6 @@ const GameSetup = (props) => {
   const [botDifficulty, setBotDifficulty] = useState({ R:'Normal', B:'Normal', Y:'Normal', G:'Normal' });
   const searchTimeoutRef = useRef(null);
 
-  // ---------------- Fix: Infinite Loop Resolvers ----------------
-
-  // 1. Manage Selection Rules without triggering re-renders
   useEffect(() => {
     if (isPOI && selectedColors.length !== 4) {
       setSelectedColors(['R','B','Y','G']);
@@ -70,10 +68,8 @@ const GameSetup = (props) => {
     } else if (isOffline && humanColor !== null) {
       setHumanColor(null); 
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPOI, isBot, isPOF, isOffline, selectedColors.length]); // Track length, not array reference
+  }, [isPOI, isBot, isPOF, isOffline, selectedColors.length]);
 
-  // 2. Auto-name Bots and POF Owned Profiles Safely
   useEffect(() => {
     setPlayers(prev => {
       let changed = false;
@@ -94,12 +90,9 @@ const GameSetup = (props) => {
            }
         }
       });
-      return changed ? next : prev; // ONLY update state if values actually changed
+      return changed ? next : prev; 
     });
   }, [selectedColors, humanColor, isBot, isPOF, myName, myEmail, myAvatar]);
-
-
-  // ---------------- Logic ----------------
 
   const toggleColor = (colorId) => {
     if (isPOI) return; 
@@ -124,25 +117,18 @@ const GameSetup = (props) => {
     return (searchResults[colorId] || []).filter(u => !taken.includes(u.username));
   };
 
-  // YouTube-Style Search Logic
   const handleSearch = (color, query) => {
-    // Un-verify the user immediately when they start typing a new query
     setPlayers(prev => ({ ...prev, [color]: { ...prev[color], username: query, verified: false } }));
-
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    
-    // Require at least 2 characters to search
     if (query.trim().length < 5) {
       setSearchResults(p => ({ ...p, [color]: [] }));
       setActiveSearch(null);
       return;
     }
-
     searchTimeoutRef.current = setTimeout(async () => {
       setLoadingStates(p => ({ ...p, [color]: true }));
       try {
         const res = await api.get(`/api/auth/search-users?query=${encodeURIComponent(query)}&excludeName=${encodeURIComponent(myName)}`);
-        // Limit to top 5 results for clean dropdown UI
         setSearchResults(p => ({ ...p, [color]: (res.data.users || []).slice(0, 5) }));
         setActiveSearch(color);
       } catch (err) { console.error(err); }
@@ -150,54 +136,51 @@ const GameSetup = (props) => {
     }, 400); 
   };
 
-  // Validation function when a user is clicked from the list
   const selectUser = (colorId, user) => {
     setPlayers(prev => ({
       ...prev,
       [colorId]: {
         ...prev[colorId],
         name: user.fullname || user.username,
-        username: user.username, // Lock in the official username
+        username: user.username,
         profile: user.avatar || "/defaultProfile.png",
-        verified: true // Validated!
+        verified: true 
       }
     }));
-    setActiveSearch(null); // Close the dropdown
+    setActiveSearch(null); 
   };
 
   const handleStart = () => {
     const gameObj = {
       type: boardType,
       players: selectedColors,
-      names: selectedColors.map(c => isPOF ? players[c].username : players[c].name), // Send usernames for POF
+      names: selectedColors.map(c => isPOF ? players[c].username : players[c].name), 
       botDifficulties: selectedColors.reduce((acc, c) => {
         acc[c] = (isBot && c !== humanColor) ? botDifficulty[c] : null;
         return acc;
       }, {})
     };
     
+    // 1. Save to Zustand
     gameActions.initiateGame(gameObj);
+    
+    // 2. Navigate away to the Session component!
     navigate(`/session/${boardType}`);
   };
 
-  // Start Button Validation Rules
   let startDisabled = false;
-  if (isPOF) startDisabled = selectedColors.some(c => !players[c].verified); // All friends must be verified
-  if (isOffline || isBot) startDisabled = selectedColors.some(c => !players[c].name.trim()); // All local players need a name
-  if (isPOI) startDisabled = false; // Internet mode is always ready
+  if (isPOF) startDisabled = selectedColors.some(c => !players[c].verified); 
+  if (isOffline || isBot) startDisabled = selectedColors.some(c => !players[c].name.trim()); 
+  if (isPOI) startDisabled = false; 
 
   return (
     <div className="min-h-screen w-full bg-[#020205] text-white flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden">
-      
-      {/* Abort Navigation */}
       <button onClick={() => navigate('/dashboard')} className="absolute top-4 left-4 flex items-center gap-1.5 text-gray-500 hover:text-white transition-all z-50">
         <ArrowLeft size={14} />
         <span className="text-[9px] font-black uppercase tracking-widest">Abort</span>
       </button>
 
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-3xl max-h-[90vh] bg-black/40 backdrop-blur-3xl border border-white/10 rounded-[2rem] flex flex-col shadow-2xl overflow-hidden">
-        
-        {/* Header */}
         <div className="p-5 sm:p-8 border-b border-white/5 flex-shrink-0">
           <div className="flex items-center gap-2 mb-1 justify-center opacity-40">
             <Terminal size={12} className="text-[#00ff3c]" />
@@ -210,10 +193,7 @@ const GameSetup = (props) => {
           </div>
         </div>
 
-        {/* Scrollable Content Area */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-8 custom-scrollbar space-y-6">
-          
-          {/* Node Selector (Hides if Online/POI because it's fixed to 4) */}
           <div className={`space-y-3 ${isPOI ? 'opacity-50 pointer-events-none' : ''}`}>
             <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
               <Users size={10} /> Node_Configuration {isPOI && "(LOCKED)"}
@@ -231,14 +211,12 @@ const GameSetup = (props) => {
             </div>
           </div>
 
-          {/* Player Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
             {selectedColors.map((colorId) => {
               const isOwned = humanColor === colorId;
               const isBotNode = isBot && !isOwned;
               const isPOFSearchNode = isPOF && !isOwned;
 
-              // Determine Input Visuals & States dynamically
               let inputDisabled = false;
               let placeholder = "Pilot Alias";
               let displayValue = players[colorId].name;
@@ -250,10 +228,10 @@ const GameSetup = (props) => {
               } else if (isBotNode) {
                 inputDisabled = true;
               } else if (isPOF && isOwned) {
-                inputDisabled = true; // Locked to the user's account name
+                inputDisabled = true; 
               } else if (isPOFSearchNode) {
                 placeholder = "Search Username...";
-                displayValue = players[colorId].username; // In POF, you type Usernames
+                displayValue = players[colorId].username; 
               }
 
               return (
@@ -287,7 +265,6 @@ const GameSetup = (props) => {
                        (isPOFSearchNode && players[colorId].verified) && <CheckCircle className="text-[#00ff3c]" size={12} />}
                     </div>
 
-                    {/* Friend Search Dropdown */}
                     <AnimatePresence>
                       {isPOFSearchNode && activeSearch === colorId && getFilteredResults(colorId).length > 0 && (
                         <motion.div initial={{ opacity:0, y:-5 }} animate={{ opacity:1, y:0 }} exit={{opacity: 0}} className="absolute top-full left-0 w-full mt-1 bg-[#0a0a0f] border border-white/10 rounded-lg overflow-hidden shadow-2xl z-50">
@@ -305,7 +282,6 @@ const GameSetup = (props) => {
                     </AnimatePresence>
                   </div>
 
-                  {/* Bot Difficulty Selector */}
                   {isBotNode && (
                     <div className="flex items-center justify-between bg-black/40 px-2 py-1.5 rounded-lg border border-white/5">
                         <span className="text-[8px] font-black text-gray-500 uppercase flex items-center gap-1"><Cpu size={10}/> Protocol</span>
@@ -320,7 +296,6 @@ const GameSetup = (props) => {
                     </div>
                   )}
 
-                  {/* Claim Button (Only for BOT and POF modes) */}
                   {(isBot || isPOF) && (
                     <button 
                       onClick={() => setHumanColor(colorId)} 
@@ -336,7 +311,6 @@ const GameSetup = (props) => {
           </div>
         </div>
 
-        {/* Action Footer */}
         <div className="p-5 sm:p-8 bg-white/5 border-t border-white/5 flex-shrink-0">
           <button 
             disabled={startDisabled}

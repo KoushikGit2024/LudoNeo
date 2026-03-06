@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useContext } from "react";
 import DiceFace from "../../sharedBoardComponents/DiceFace";
 import '../../../styles/dice.css'; // Preserving your CSS import
 import useGameStore from '@/store/useGameStore'
@@ -7,11 +7,12 @@ import gameActions from '@/store/gameLogic'
 import DiceRoll from "../../../assets/DiceRoll.mp3";
 import { Sparkles, Lock } from "lucide-react"; // Icons for status
 import { Bounce, toast } from "react-toastify";
+import { AudioContext } from "@/contexts/SoundContext";
 
-const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, winState, sound }) => {
+const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, winState }) => {
   const [rolling, setRolling] = useState(false);
   const [value, setValue] = useState(1);
-  
+  const {sound}=useContext(AudioContext)
   // --- STORE HOOKS (Unchanged) ---
   const pathCount = useGameStore((state) => state.players[turn]?.pathCount);
   const timeOut = useGameStore((state) => state.move.timeOut);

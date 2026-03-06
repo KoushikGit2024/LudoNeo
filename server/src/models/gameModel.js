@@ -6,8 +6,6 @@ const playerSchema = new mongoose.Schema({
     profile: String,
     color: String,
     pieceIdx: { type: [Number], default: [-1, -1, -1, -1] },
-    // Since Maps are tricky in MongoDB, we store pieceRef as a plain Object
-    pieceRef: { type: Map, of: Number, default: {} },
     homeCount: { type: Number, default: 4 },
     outCount: { type: Number, default: 0 },
     winCount: { type: Number, default: 0 },
@@ -24,6 +22,7 @@ const gameStoreSchema = new mongoose.Schema({
             default: "WAITING" 
         },
         type: { type: String, default: "offline" },
+        title: { type:String },
         playerCount: { type: Number, default: 4 },
         onBoard: [String], // Array of active colors like ['R', 'G']
         winLast: { type: Number, default: 0 }
@@ -34,7 +33,6 @@ const gameStoreSchema = new mongoose.Schema({
         moveCount: { type: Number, default: 0 },
         rollAllowed: { type: Boolean, default: true }
     },
-    // We use a Map or an Object to store players indexed by color (R, B, Y, G)
     players: {
         R: playerSchema,
         B: playerSchema,

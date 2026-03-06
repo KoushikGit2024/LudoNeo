@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useContext } from "react";
 import DiceFace from "../../sharedBoardComponents/DiceFace";
 import '../../../styles/dice.css'; 
 import DiceRoll from "../../../assets/DiceRoll.mp3";
 import { Sparkles, Lock } from "lucide-react"; 
+import { AudioContext } from "@/contexts/SoundContext";
 
 // Receives socket, gameId, and store states from LudoOnline
-const Dice = ({ turn, rollAllowed, gameFinished, sound, socket, gameId, isOnline }) => {
+const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline }) => {
+  const {sound}=useContext(AudioContext)
   const [rolling, setRolling] = useState(false);
   const [value, setValue] = useState(1);
   const audioRef = useRef(null);

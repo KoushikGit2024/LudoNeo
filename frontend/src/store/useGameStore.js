@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import { devtools, persist } from "zustand/middleware";
+import { devtools, persist, createJSONStorage } from "zustand/middleware";
 
 // Initial State only
 const initialState = {
   meta: {
     gameId: "",
+    code: [""],
     status: "WAITING",
     type: "offline",
     version: 0,
@@ -31,44 +32,41 @@ const initialState = {
   },
 };
 
-
+function overwriteGameStateLogic(state, serverState) {
+  // Completely replace local state with server state
+  return { ...serverState };
+}
 
 const useGameStore = create(
   devtools(
     persist(
-      () => initialState, // Your existing initial state with Maps and Sets
+      () => initialState,
       {
         name: "ludo-neo-vault",
-        storage: {
-          getItem: (name) => {
-            const str = localStorage.getItem(name);
-            if (!str) return null;
-            
-            // Custom Parser: Reconstructs Map/Set from saved Arrays
-            return JSON.parse(str, (key, value) => {
-              if (value && value.__type === 'Map') return new Map(value.value);
-              if (value && value.__type === 'Set') return new Set(value.value);
-              return value;
-            });
+        // Use createJSONStorage to safely pass custom replacers/revivers
+        storage: createJSONStorage(() => localStorage, {
+          replacer: (key, value) => {
+            if (value instanceof Map) {
+              return { __type: 'Map', value: Array.from(value.entries()) };
+            }
+            if (value instanceof Set) {
+              return { __type: 'Set', value: Array.from(value.values()) };
+            }
+            return value;
           },
-          setItem: (name, newValue) => {
-            // Custom Stringifier: Converts Map/Set to Arrays with metadata
-            const str = JSON.stringify(newValue, (key, value) => {
-              if (value instanceof Map) {
-                return { __type: 'Map', value: Array.from(value.entries()) };
-              }
-              if (value instanceof Set) {
-                return { __type: 'Set', value: Array.from(value.values()) };
-              }
-              return value;
-            });
-            localStorage.setItem(name, str);
-          },
-        },
+          reviver: (key, value) => {
+            if (value && value.__type === 'Map') {
+              return new Map(value.value);
+            }
+            if (value && value.__type === 'Set') {
+              return new Set(value.value);
+            }
+            return value;
+          }
+        }),
       }
     )
   )
 );
 
 export default useGameStore;
-

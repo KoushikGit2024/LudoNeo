@@ -8,11 +8,12 @@ import useUserStore from '@/store/userStore';
 import "../styles/menu.css";
 import "../styles/cell.css";
 
+
 const MENU_ITEMS = [
-  { label: "Play With Bot", color: "#ff0505", route: "/session/bot", img: "/bot.png" },
-  { label: "Offline Board", color: "#2b01ff", route: "/session/offline", img: "/offline.png" },
-  { label: "Play On Internet", color: "#fff200", route: "/session/online", img: "/poi.png" },
-  { label: "Play With Friends", color: "#00ff3c", route: "/session/pof", img: "/pof.png" }
+  { label: "Play With Bot", color: "#ff0505", route: "/setup/bot", img: "/bot.png" },
+  { label: "Offline Board", color: "#2b01ff", route: "/setup/offline", img: "/offline.png" },
+  { label: "Play On Internet", color: "#fff200", route: "/setup/poi", img: "/poi.png" }, // Adjusted 'online' to 'poi' for consistency with your GameSetup checks
+  { label: "Play With Friends", color: "#00ff3c", route: "/setup/pof", img: "/pof.png" }
 ];
 
 const SUB_OPTIONS = [
@@ -108,7 +109,7 @@ const Dashboard = () => {
                     <img 
                       src={item.img} 
                       alt={item.label} 
-                      className="absolute h-full w-full object-cover opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700 ease-in-out grayscale-[50%] group-hover:grayscale-0"
+                      className={`"absolute h-full w-full object-cover opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700 ease-in-out grayscale-[50%] group-hover:grayscale-0" ${idx===2?'ml-[-5%] mt-[5%]':(idx===3)?'ml-[5%]':''}`}
                     />
                   </div>
                   

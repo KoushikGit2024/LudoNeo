@@ -1,5 +1,5 @@
 
-import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState, useContext} from "react";
 import { Shield, ChevronRight, Zap, Trophy, Ban } from "lucide-react"; // Import Icons
 import "../../../styles/gameBoard.css"; // Preserving your Grid Layout CSS
 import SlideEffect from '../../../assets/SlideEffect.mp3';
@@ -11,13 +11,13 @@ import useGameStore from '@/store/useGameStore'
 import gameActions from '@/store/gameLogic'
 import { useShallow } from "zustand/shallow";
 import piecePath from "../../../contexts/PiecePath.js";
-
+import { AudioContext } from "@/contexts/SoundContext";
 // --- Design Constants ---
 const NEON_GLOW = (color) => `0 0 10px ${color}, 0 0 20px ${color}44`;
 const GLASS_BG = "bg-[#0a0a0f]/90 backdrop-blur-md border border-white/10";
 
-const GameBoard = memo(({ moveCount, timeOut, moving, pieceIdxArr, winState, sound }) => {
-  
+const GameBoard = memo(({ moveCount, timeOut, moving, pieceIdxArr, winState }) => {
+  const {sound}=useContext(AudioContext)
   // =========================================================================
   // ========================== LOGIC LAYER (UNCHANGED) ======================
   // =========================================================================

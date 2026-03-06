@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Shield, ChevronRight, Zap, Trophy, Ban } from "lucide-react"; 
 import "../../../styles/gameBoard.css"; 
 import SlideEffect from '../../../assets/SlideEffect.mp3';
@@ -10,13 +10,14 @@ import useGameStore from '@/store/useGameStore'
 import gameActions from '@/store/gameLogic'
 import { useShallow } from "zustand/shallow";
 import piecePath from "../../../contexts/PiecePath.js";
+import { AudioContext } from "@/contexts/SoundContext";
 
-const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, pieceIdxArr, winState, sound }) => {
+const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, pieceIdxArr, winState }) => {
   
   // =========================================================================
   // ========================== UTILITY LAYER ================================
   // =========================================================================
-
+  const {sound}=useContext(AudioContext);
   const findIdxByref = (color, ref) => {
     let baseStartIdx =
       turn === 'R' ? 79 :

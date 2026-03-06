@@ -130,11 +130,37 @@ const updateProfile = async (req, res, next) => {
         }
 
         if (file) {
+            // 1. Upload the new image first (so if it fails, we don't delete the old one)
             const uploadResponse = await imagekit.upload({
                 file: file.buffer,
                 fileName: `profile_update_${user.username}_${Date.now()}`,
                 folder: "/ludo_neo/avatars"
             });
+
+            // 2. Safely delete the old image from ImageKit
+            // Check if it's an ImageKit URL and not the local "/defaultProfile.png"
+            if (user.avatar && user.avatar.includes('imagekit.io')) {
+                try {
+                    // Extract just the filename from the end of the URL
+                    const oldFileName = user.avatar.split('/').pop();
+                    
+                    // Ask ImageKit to find the file by name to get its hidden ID
+                    const files = await imagekit.listFiles({
+                        searchQuery: `name="${oldFileName}"`
+                    });
+
+                    // If ImageKit finds it, destroy it
+                    if (files && files.length > 0) {
+                        await imagekit.deleteFile(files[0].fileId);
+                        console.log(`[SYSTEM] Orphaned DNA scan deleted: ${oldFileName}`);
+                    }
+                } catch (deleteErr) {
+                    console.error("[SYSTEM WARNING] Failed to purge old avatar from ImageKit:", deleteErr);
+                    // We don't throw an error here. Even if deletion fails, we still want to save the new profile!
+                }
+            }
+
+            // 3. Update DB with new image URL
             user.avatar = uploadResponse.url;
         }
 
@@ -165,10 +191,25 @@ const deleteAccount = async (req, res, next) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
+        // ✅ BONUS: Delete their avatar from ImageKit if they purge their account!
+        if (user.avatar && user.avatar.includes('imagekit.io')) {
+            try {
+                const oldFileName = user.avatar.split('/').pop();
+                const files = await imagekit.listFiles({ searchQuery: `name="${oldFileName}"` });
+                if (files && files.length > 0) {
+                    await imagekit.deleteFile(files[0].fileId);
+                }
+            } catch (err) {
+                console.error("[SYSTEM WARNING] Failed to delete avatar during account purge:", err);
+            }
+        }
+
+        // Clean up Redis keys
         const keys = await redis.keys(`*:${user.email}*`);
         if (keys.length > 0) await redis.del(...keys);
         await redis.del(`status:${userId}`);
 
+        // Purge DB and Cookies
         await User.findByIdAndDelete(userId);
         res.clearCookie("token", getCookieOptions());
 

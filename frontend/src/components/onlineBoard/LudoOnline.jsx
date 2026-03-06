@@ -12,12 +12,39 @@ import { useShallow } from 'zustand/shallow';
 import ErrorBoundary from '../../ErrorBoundary';
 import GradientText from '@/components/customComponents/GradientText';
 
+
+
+const LudoSkeleton = () => (
+  <div className="flex flex-col items-center justify-center w-full h-full space-y-8 animate-pulse">
+    {/* Top Player Bars */}
+    <div className="flex justify-between w-full px-4">
+      <div className="h-12 w-32 bg-white/5 rounded-xl border border-white/10" />
+      <div className="h-12 w-32 bg-white/5 rounded-xl border border-white/10" />
+    </div>
+    
+    {/* Main Board Skeleton */}
+    <div className="relative aspect-square w-[90%] max-w-[450px] bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center">
+       <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+       <Zap size={48} className="text-white/10" />
+    </div>
+
+    {/* Bottom Player Bars */}
+    <div className="flex justify-between w-full px-4">
+      <div className="h-12 w-32 bg-white/5 rounded-xl border border-white/10" />
+      <div className="h-12 w-32 bg-white/5 rounded-xl border border-white/10" />
+    </div>
+    
+    <p className="text-[10px] font-mono text-indigo-400 tracking-[0.4em] uppercase">Initializing_Grid...</p>
+  </div>
+);
+
 // Assuming you pass the socket instance here via a layout wrapper or context
 const LudoOnline = memo(({ socket }) => {
   const navigate = useNavigate();
   const { gameId } = useParams(); 
   const [screen, setScreen] = useState(window.innerWidth <= window.innerHeight);
   const [sound, allowSound] = useState(false);
+  const [socketLoaded,setSocketLoaded] = useState(false);
   
   const ref = useRef(null);
 
@@ -26,32 +53,28 @@ const LudoOnline = memo(({ socket }) => {
   // =========================================================================
   
   useEffect(() => {
-    if (!socket || !gameId) return;
+  if (!socket || !gameId) return;
 
-    // 1. Initial Sync
-    socket.emit("sync-state", { gameId });
+  // 1. Initial Sync Request
+  socket.emit("sync-state", { gameId });
 
-    // 2. State Hard Sync (for reconnection or forced turn skips)
-    const handleStateSync = (serverState) => {
-      gameActions.syncGameState(serverState);
-    };
+  const handleStateSync = (serverState) => {
+    gameActions.syncGameState(serverState);
+    setSocketLoaded(true); // <--- State is now ready
+  };
 
-    // 3. Dice Roll Sync
-    const handleDiceRolled = ({ value, newState }) => {
-      // The Dice component handles its own fast-scramble animation based on this event.
-      // We immediately sync the state so move calculations are ready.
-      gameActions.syncGameState(newState);
-    };
+  const handleDiceRolled = ({ value, newState }) => {
+    gameActions.syncGameState(newState);
+  };
 
-    socket.on("state-synced", handleStateSync);
-    socket.on("dice-rolled", handleDiceRolled);
-    // NOTE: 'piece-moved' is handled inside GameBoard.jsx for precise GSAP animation timing.
+  socket.on("state-synced", handleStateSync);
+  socket.on("dice-rolled", handleDiceRolled);
 
-    return () => {
-      socket.off("state-synced", handleStateSync);
-      socket.off("dice-rolled", handleDiceRolled);
-    };
-  }, [socket, gameId]);
+  return () => {
+    socket.off("state-synced", handleStateSync);
+    socket.off("dice-rolled", handleDiceRolled);
+  };
+}, [socket, gameId]);
 
   // =========================================================================
   // ========================== STORE SUBSCRIPTIONS ==========================
@@ -130,9 +153,95 @@ const LudoOnline = memo(({ socket }) => {
       {/* Background Ambience */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#020205] to-[#020205] z-0 pointer-events-none" />
       <div className="absolute inset-0 z-0 opacity-10" style={{backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '30px 30px'}}></div>
+      {!socketLoaded ? (
+        <motion.div 
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          exit={{ opacity: 0 }}
+          className="relative z-50 w-full max-w-[500px]"
+        >
+          <LudoSkeleton />
+        </motion.div>
+      ) : (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          ref={ref}
+          className={`relative z-10 flex flex-col items-center justify-between ...`}
+        >
+          {/* ... rest of your code ... */}
+          {/* --- MAIN GAME CONTAINER --- */}
+          <div
+            ref={ref}
+            className={`relative z-10 flex flex-col items-center justify-between transition-all duration-500
+              ${screen ? 'w-full max-w-[500px] aspect-[12/16] py-2 px-1' : 'h-full max-h-[95vh] aspect-[1/1] py-4'}
+              ${isFinished ? 'pointer-events-none blur-md opacity-40 scale-95' : ''} 
+            `}
+          >
+            <div className='flex flex-row items-center justify-between w-full h-[10%] sm:h-[10%] px-1 gap-2 sm:gap-4'>  
+              <div className="h-full flex-1 max-w-[35%] min-w-0">
+                <PlayerBoard playing={playersSet?.has('B')} idx={'B'} left={true} turn={moveObj.turn === 'B'} isOnline={true}/>
+              </div>
+              
+              <div className="relative h-full aspect-square max-h-[80px] sm:max-h-[100px] flex items-center justify-center group flex-shrink-0">
+                <div className="absolute inset-0 rounded-xl opacity-40 blur-lg transition-colors duration-500" style={{ backgroundColor: curColor }} />
+                <div className="dice-cover relative z-10 w-full h-full flex items-center justify-center rounded-xl bg-[#0a0a0f]/80 backdrop-blur-xl border border-white/10 transition-all duration-300 shadow-xl" style={{ borderColor: curColor, boxShadow: `inset 0 0 15px ${curColor}15` }}>
+                  <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 border-t border-l opacity-50" style={{borderColor: curColor}}/>
+                  <div className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 border-b border-r opacity-50" style={{borderColor: curColor}}/>
+                  
+                  <Dice 
+                    turn={turn} 
+                    rollAllowed={rollAllowed} 
+                    gameFinished={isFinished}
+                    socket={socket} 
+                    gameId={gameId} 
+                    isOnline={true}
+                  />
+                </div>
+              </div>
+              
+              <div className="h-full flex-1 max-w-[35%] min-w-0">
+                <PlayerBoard playing={playersSet?.has('Y')} idx={'Y'} left={false} turn={moveObj.turn === 'Y'} isOnline={true} />
+              </div>
+            </div>
 
+            <div className={`relative flex items-center justify-center flex-1 w-full overflow-hidden my-1`}>
+              <div className="relative aspect-square w-full h-auto max-h-full max-w-full flex items-center justify-center">
+                <div className="absolute inset-0 rounded-lg bg-black/40 shadow-2xl backdrop-blur-sm border border-white/5"></div>
+                <div className={`z-10 p-1 aspect-square flex-none ${screen ? 'w-full max-w-full h-auto' : 'h-full max-h-full w-auto'}`}>
+                  <ErrorBoundary>
+                    <GameBoard
+                      socket={socket}
+                      gameId={gameId}
+                      isOnline={true}
+                      moveCount={moveObj.moveCount}
+                      moving={moveObj.moving}
+                      pieceIdxArr={pieceIdx}
+                      winState={winState}
+                    />
+                  </ErrorBoundary>
+                </div>
+              </div>
+            </div>
+
+            <div className='flex flex-row items-center justify-between w-full h-[10%] sm:h-[10%] px-1 gap-2 sm:gap-4'>
+              <div className="h-full flex-1 max-w-[35%] min-w-0">
+                <PlayerBoard playing={playersSet?.has('R')} idx={'R'} left={true} turn={moveObj.turn === 'R'} isOnline={true}/>
+              </div>
+              <div className="hidden sm:flex flex-col items-center justify-center opacity-30 w-[20%]">
+                <Zap size={18} className="text-white animate-pulse" />
+                <span className="text-[8px] tracking-[0.3em] text-white font-mono mt-0.5">NEO</span>
+              </div>
+              <div className="h-full flex-1 max-w-[35%] min-w-0">
+                <PlayerBoard playing={playersSet?.has('G')} idx={'G'} left={false} turn={moveObj.turn === 'G'} isOnline={true}/>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
       {/* --- SOUND TOGGLE --- */}
-      <div className="absolute z-50 top-2 left-2 sm:top-4 sm:left-4" onClick={() => allowSound(pre => !pre)}>
+      {/* <div className="absolute z-50 top-2 left-2 sm:top-4 sm:left-4" onClick={() => allowSound(pre => !pre)}>
         <button className={`flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-md transition-all duration-300
           ${sound ? 'bg-[#00ff3c]/10 border-[#00ff3c]/50 text-[#00ff3c] shadow-[0_0_15px_rgba(0,255,60,0.3)]' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
         >
@@ -141,77 +250,9 @@ const LudoOnline = memo(({ socket }) => {
             {sound ? 'ON' : 'OFF'}
           </span>
         </button>
-      </div>
+      </div> */}
 
-      {/* --- MAIN GAME CONTAINER --- */}
-      <div
-        ref={ref}
-        className={`relative z-10 flex flex-col items-center justify-between transition-all duration-500
-          ${screen ? 'w-full max-w-[500px] aspect-[12/16] py-2 px-1' : 'h-full max-h-[95vh] aspect-[1/1] py-4'}
-          ${isFinished ? 'pointer-events-none blur-md opacity-40 scale-95' : ''} 
-        `}
-      >
-        <div className='flex flex-row items-center justify-between w-full h-[10%] sm:h-[10%] px-1 gap-2 sm:gap-4'>  
-          <div className="h-full flex-1 max-w-[35%] min-w-0">
-             <PlayerBoard playing={playersSet?.has('B')} idx={'B'} left={true} turn={moveObj.turn === 'B'} isOnline={true}/>
-          </div>
-          
-          <div className="relative h-full aspect-square max-h-[80px] sm:max-h-[100px] flex items-center justify-center group flex-shrink-0">
-            <div className="absolute inset-0 rounded-xl opacity-40 blur-lg transition-colors duration-500" style={{ backgroundColor: curColor }} />
-            <div className="dice-cover relative z-10 w-full h-full flex items-center justify-center rounded-xl bg-[#0a0a0f]/80 backdrop-blur-xl border border-white/10 transition-all duration-300 shadow-xl" style={{ borderColor: curColor, boxShadow: `inset 0 0 15px ${curColor}15` }}>
-               <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 border-t border-l opacity-50" style={{borderColor: curColor}}/>
-               <div className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 border-b border-r opacity-50" style={{borderColor: curColor}}/>
-               
-              <Dice 
-                turn={turn} 
-                rollAllowed={rollAllowed} 
-                gameFinished={isFinished} 
-                sound={sound} 
-                socket={socket} 
-                gameId={gameId} 
-                isOnline={true}
-              />
-            </div>
-          </div>
-          
-          <div className="h-full flex-1 max-w-[35%] min-w-0">
-            <PlayerBoard playing={playersSet?.has('Y')} idx={'Y'} left={false} turn={moveObj.turn === 'Y'} isOnline={true} />
-          </div>
-        </div>
-
-        <div className={`relative flex items-center justify-center flex-1 w-full overflow-hidden my-1`}>
-          <div className="relative aspect-square w-full h-auto max-h-full max-w-full flex items-center justify-center">
-            <div className="absolute inset-0 rounded-lg bg-black/40 shadow-2xl backdrop-blur-sm border border-white/5"></div>
-            <div className={`z-10 p-1 aspect-square flex-none ${screen ? 'w-full max-w-full h-auto' : 'h-full max-h-full w-auto'}`}>
-              <ErrorBoundary>
-                <GameBoard
-                  socket={socket}
-                  gameId={gameId}
-                  isOnline={true}
-                  moveCount={moveObj.moveCount}
-                  moving={moveObj.moving}
-                  pieceIdxArr={pieceIdx}
-                  winState={winState}
-                  sound={sound}
-                />
-              </ErrorBoundary>
-            </div>
-          </div>
-        </div>
-
-        <div className='flex flex-row items-center justify-between w-full h-[10%] sm:h-[10%] px-1 gap-2 sm:gap-4'>
-          <div className="h-full flex-1 max-w-[35%] min-w-0">
-            <PlayerBoard playing={playersSet?.has('R')} idx={'R'} left={true} turn={moveObj.turn === 'R'} isOnline={true}/>
-          </div>
-          <div className="hidden sm:flex flex-col items-center justify-center opacity-30 w-[20%]">
-             <Zap size={18} className="text-white animate-pulse" />
-             <span className="text-[8px] tracking-[0.3em] text-white font-mono mt-0.5">NEO</span>
-          </div>
-          <div className="h-full flex-1 max-w-[35%] min-w-0">
-            <PlayerBoard playing={playersSet?.has('G')} idx={'G'} left={false} turn={moveObj.turn === 'G'} isOnline={true}/>
-          </div>
-        </div>
-      </div>
+      
 
       {/* --- LEADERBOARD OVERLAY --- */}
       <AnimatePresence>

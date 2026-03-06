@@ -4,6 +4,73 @@
 
 import { Bounce, toast } from "react-toastify";
 import useGameStore from "./useGameStore";
+// Add this helper near your other logic functions
+// This rebuilds the pieceRef Maps based on pieceIdx since MongoDB doesn't save Maps natively
+import piecePath from '../contexts/PiecePath.js'; // Ensure you import your path logic!
+
+function loadGameLogic(state, dbState) {
+  const hydratedPlayers = {};
+  const colors = ["R", "B", "Y", "G"];
+  const startIdxMap = { R: 79, B: 83, Y: 87, G: 91 };
+
+  colors.forEach(c => {
+    if (dbState.players[c]) {
+      const pData = dbState.players[c];
+      const pieceRefMap = new Map();
+
+      // Recalculate pieceRef from pieceIdx
+      pData.pieceIdx.forEach((pos, i) => {
+        let ref;
+        if (pos === -1) {
+          ref = startIdxMap[c] - i; // Base positions (e.g., 79, 78, 77, 76 for Red)
+        } else if (pos >= 0 && pos <= 56) {
+          ref = piecePath[c][pos];  // Active board position
+        }
+        
+        if (ref !== undefined) {
+          pieceRefMap.set(ref, (pieceRefMap.get(ref) || 0) + 1);
+        }
+      });
+
+      hydratedPlayers[c] = {
+        ...state.players[c],
+        ...pData,
+        pieceRef: pieceRefMap
+      };
+    }
+  });
+
+  return {
+    ...state,
+    meta: {
+      ...state.meta,
+      ...dbState.meta,
+      onBoard: new Set(dbState.meta.onBoard) // Convert Array back to Set
+    },
+    move: {
+      ...state.move,
+      ...dbState.move
+    },
+    players: {
+      ...state.players,
+      ...hydratedPlayers
+    }
+  };
+}
+
+// ... your existing gameActions ...
+
+// const gameActions = {
+//   // ... Keep all existing actions ...
+
+//   // === 1. SAVE GAME ===
+  
+
+//   // === 2. LOAD/RETRIEVE GAME ===
+  
+// };
+
+// export default gameActions;
 
 function shortId(length = 6) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -17,25 +84,30 @@ function initiateOfflineGameLogic(state, gameObj) {
 
   const genId = shortId(16);
 
-  if (gameObj.type !== "offline") {
+  // 1. Ensure type matches
+  if (!["offline", "bot", "pof", "poi"].includes(gameObj.type)) {
     return state;
   }
-
-  const player = {};
+  console.log(gameObj);
+  const players = {};
   const colors = ["#FF3131", "#00D4FF", "#ffc400", "#00FF14"];
-  const onBoardSet = new Set(gameObj.players);
+  const masterOrder = ["R", "B", "Y", "G"];
 
-  ["R", "B", "Y", "G"].forEach((el, idx) => {
+  masterOrder.forEach((el, idx) => {
     let startIdx;
     if (el === "R") startIdx = 79;
     if (el === "B") startIdx = 83;
     if (el === "Y") startIdx = 87;
     if (el === "G") startIdx = 91;
 
-    if (onBoardSet.has(el)) {
-      player[el] = {
+    // 2. FIXED: Find the actual index of this color in the incoming gameObj payload
+    const playerIndexInGameObj = gameObj.players.indexOf(el);
+
+    if (playerIndexInGameObj !== -1) {
+      players[el] = {
         ...state.players[el],
-        name: gameObj.names[idx],
+        // Pull the name using the dynamic index, NOT the master array index
+        name: gameObj.names[playerIndexInGameObj], 
         userId: "",
         profile: "/defaultProfile.png",
         pieceIdx: [-1, -1, -1, -1],
@@ -52,21 +124,21 @@ function initiateOfflineGameLogic(state, gameObj) {
         color: colors[idx],
       };
     } else {
-      player[el] = {
+      players[el] = {
         ...state.players[el],
         color: colors[idx],
       };
     }
   });
 
-  const startTime = structuredClone(state.meta.gameStartedAt);
-  startTime.push(Date.now());
-
-  return {
+  // 3. Safer way to push to array without structuredClone
+  const startTime = [...state.meta.gameStartedAt, Date.now()];
+  console.log({
     ...state,
     move: {
+      ...state.move,
       playerIdx: 0,
-      turn: gameObj.players[0],
+      turn: gameObj.players[0], // Safe because gameObj.players is always RBYG sorted now
       rollAllowed: true,
       moveCount: 0,
       ticks: 0,
@@ -83,12 +155,42 @@ function initiateOfflineGameLogic(state, gameObj) {
       status: "RUNNING",
       currentTurn: gameObj.players[0],
       gameStartedAt: startTime,
-      type: "offline",
+      type: gameObj.type,
       winLast: 0,
     },
     players: {
       ...state.players,
-      ...player,
+      ...players,
+    },
+  })
+  return {
+    ...state,
+    move: {
+      ...state.move,
+      playerIdx: 0,
+      turn: gameObj.players[0], // Safe because gameObj.players is always RBYG sorted now
+      rollAllowed: true,
+      moveCount: 0,
+      ticks: 0,
+      version: 0,
+      moveAllowed: false,
+      moving: false,
+      timeOut: false,
+    },
+    meta: {
+      ...state.meta,
+      playerCount: gameObj.players.length,
+      onBoard: new Set(gameObj.players),
+      gameId: genId,
+      status: "RUNNING",
+      currentTurn: gameObj.players[0],
+      gameStartedAt: startTime,
+      type: gameObj.type,
+      winLast: 0,
+    },
+    players: {
+      ...state.players,
+      ...players,
     },
   };
 }
@@ -169,7 +271,7 @@ function updatePieceStateLogic(
       pieceRefMap.set(pieceRef, nextCount);
     }
   }
-
+  // console.log(state.meta)
   return {
     ...state,
     meta: {
@@ -376,6 +478,66 @@ const gameActions = {
   syncGameState: (serverState) => useGameStore.setState((state) => syncStateLogic(state, serverState), false, "syncGameState"),    
   
   setMoving: (val) => useGameStore.setState((state) => ({ move: { ...state.move, moving: val } }), false, "setMoving"),
+
+  endGame: () => 
+    useGameStore.setState((state) => endGameLogic(state), false, "endGame"),
+
+  // NEW: Async function to save the game to the database
+  saveGameToDB: async (title) => {
+    const state = useGameStore.getState();
+
+    // Only save offline/bot games
+    if (state.meta.type !== "offline" && state.meta.type !== "bot") return;
+
+    // Format payload to exactly match your Mongoose Schema
+    const payload = {
+      meta: {
+        gameId: state.meta.gameId,
+        status: state.meta.status,
+        type: state.meta.type,
+        title,
+        playerCount: state.meta.playerCount,
+        onBoard: Array.from(state.meta.onBoard), // Zustand Set -> Mongoose Array
+        winLast: state.meta.winLast
+      },
+      move: {
+        playerIdx: state.move.playerIdx,
+        turn: state.move.turn,
+        moveCount: state.move.moveCount,
+        rollAllowed: state.move.rollAllowed
+      },
+      players: {
+        R: state.players.R, // Only the fields in playerSchema will be saved by Mongoose
+        B: state.players.B,
+        Y: state.players.Y,
+        G: state.players.G
+      }
+    };
+
+    try {
+      await api.post('/api/games/save', payload);
+      const msg = state.meta.status === "FINISHED" ? "Match results saved!" : "Game progress saved!";
+      toast.success(msg, { theme: "dark" });
+    } catch (error) {
+      console.error("Failed to save game to DB:", error);
+      toast.error("Failed to sync with server");
+    }
+  },
+  loadGameFromDB: async (gameId) => {
+    try {
+      const res = await api.get(`/api/games/${gameId}`);
+      
+      if (res.data.success && res.data.game) {
+        useGameStore.setState((state) => loadGameLogic(state, res.data.game), false, "loadGameFromDB");
+        return true; // Return success so UI can navigate to board
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to load game from DB:", error);
+      toast.error("Saved game not found");
+      return false;
+    }
+  }
 };
 
 

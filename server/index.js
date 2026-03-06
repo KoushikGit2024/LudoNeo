@@ -13,10 +13,11 @@ import ErrorLog from "./src/models/errorModel.js";
 
 // Socket and Game Logic Imports
 import registerGameHandlers from "./src/sockets/gameHandlers.js";
-import redisGameInitiate from "./src/handlers/gameHandlers.js"; // Fixed typo from 'redix' to 'redis'
+import redisGameInitiate from "./src/handlers/gameControler.js"; 
 
 // Standardized Redis import (Ensure your redis.js exports your client)
 import redis from "./src/config/redis.js"; 
+import gameRoute from "./src/routes/gameRoutes.js";
 
 dotenv.config();
 
@@ -52,19 +53,19 @@ const io = new Server(server, {
 });
 
 // Socket Middleware: Verify User via JWT Cookie
-io.use((socket, next) => {
-    const token = socket.request.headers.cookie 
-        ? socket.request.headers.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] 
-        : null;
+// io.use((socket, next) => {
+//     const token = socket.request.headers.cookie 
+//         ? socket.request.headers.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] 
+//         : null;
 
-    if (!token) return next(); // Allow guest connection
+//     if (!token) return next(); // Allow guest connection
 
-    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-        if (err) return next(); // Token invalid, proceed as guest
-        socket.user = decoded;  // Attach authenticated user data to socket
-        next();
-    });
-});
+//     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+//         if (err) return next(); // Token invalid, proceed as guest
+//         socket.user = decoded;  // Attach authenticated user data to socket
+//         next();
+//     });
+// });
 
 // Initialize External Socket Logic for the Ludo Game
 registerGameHandlers(io);
@@ -97,7 +98,7 @@ app.get("/redis", async (req, res) => {
 
 // Auth Routes
 app.use('/api/auth', authRoute);
-
+app.use('/api/games', gameRoute);
 // Ludo Setup Route (Called by GameSetup.jsx to create the game matrix in Redis)
 app.post('/api/create-game', redisGameInitiate);
 

@@ -14,12 +14,12 @@ const upload = multer({
     fileFilter: (req, file, cb) => {
         // Only allow common image formats
         if (file.mimetype.startsWith('image/')) {
-            console.log("file", file);
+            // console.log("file", file);
             cb(null, true);
         } else {
             cb(new Error("Only images are allowed!"), false);
         }
-        console.log("file", file);
+        // console.log("file", file);
     }
 });
 

@@ -1,3 +1,4 @@
+import { Socket } from 'socket.io';
 import redisClient from '../config/redis.js';
 import piecePath from '../utils/piecePath.js'; // Ensure this matches your frontend logic exactly
 
@@ -7,7 +8,11 @@ export default function registerGameHandlers(io) {
   io.on("connect", (socket) => {
     
     // --- 1. SYNC STATE ---
+    socket.on("connection", () => {
+      console.log("Client connected: ",socket);
+    })
     socket.on("sync-state", async ({ gameId }) => {
+      
       try {
         const state = await redisClient.json.get(`game:${gameId}`);
         if (state) {

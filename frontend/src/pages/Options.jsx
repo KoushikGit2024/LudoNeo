@@ -56,7 +56,7 @@ async function getCroppedImg(image, crop) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(image, crop.x * scaleX, crop.y * scaleY, crop.width * scaleX, crop.height * scaleY, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 1.0); 
+  return canvas.toDataURL('image/jpeg',0.8); 
 }
 
 const Options = () => {
@@ -81,7 +81,7 @@ const Options = () => {
   const [finalImage, setFinalImage] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
   const [userStatus, setUserStatus] = useState(null);
-  
+  const [imageSizeMB, setImageSizeMB] = useState(null);
   const imgRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -167,7 +167,7 @@ const Options = () => {
       setFinalImage(null);
       // console.log('signin')
     }
-
+    setImageSizeMB(null);
     // 4. Reset secondary states on tab change
     setIsEmailSent(false);
     setForgotPassMode(false); 
@@ -200,15 +200,32 @@ const Options = () => {
   const handleSelectFile = (e) => {
     if (e.target.files && e.target.files.length > 0) {
       const reader = new FileReader();
-      reader.addEventListener('load', () => { setImgSrc(reader.result?.toString() || ''); setIsCropModalOpen(true); });
+      reader.addEventListener('load', () => { 
+        setImgSrc(reader.result?.toString() || ''); 
+        setIsCropModalOpen(true); 
+      });
       reader.readAsDataURL(e.target.files[0]);
+      
+      e.target.value = ''; 
     }
   };
 
   const handleConfirmCrop = async () => {
     if (imgRef.current && completedCrop) {
       const base64 = await getCroppedImg(imgRef.current, completedCrop);
+      
+      // Calculate exact file size
+      const blob = dataURLtoBlob(base64);
+      const sizeInMB = (blob.size / (1024 * 1024)).toFixed(2);
+
+      // Validate against 2MB limit
+      if (sizeInMB > 2.0) {
+         toast.error(`DATA_OVERLOAD: Image is ${sizeInMB}MB. Maximum limit is 2.00MB.`);
+         return; // Abort the crop confirmation!
+      }
+
       setFinalImage(base64);
+      setImageSizeMB(sizeInMB); // Save size to state
       setIsCropModalOpen(false);
     }
   };
@@ -248,7 +265,7 @@ const Options = () => {
       const form = new FormData();
       Object.keys(formData).forEach(key => form.append(key, formData[key]));
       if (finalImage?.startsWith('data:')) form.append('avatar', dataURLtoBlob(finalImage), `${formData.username}.jpg`);
-      await api.post('/api/auth/register', form);
+      await api.post('/api/auth/register', form,{ headers: { 'Content-Type': 'multipart/form-data' } });
       setIsEmailSent(true); 
       toast.success("INITIALIZATION LINK BROADCAST TO NODE.");
     } catch (err) { toast.error(err.response?.data?.message || "REGISTRATION FAILURE."); }
@@ -338,7 +355,7 @@ const Options = () => {
       const form = new FormData();
       form.append('fullname', formData.fullname);
       if (finalImage?.startsWith('data:')) form.append('avatar', dataURLtoBlob(finalImage), 'update.jpg');
-      const res = await api.put('/api/auth/update-profile', form);
+      const res = await api.put('/api/auth/update-profile', form,{headers: { 'Content-Type': 'multipart/form-data' }});
       if(!res.data.success){
         toast.error(res.data.message);
         return;
@@ -458,7 +475,20 @@ const Options = () => {
                 <div className="max-w-4xl mx-auto w-full">
                   <form onSubmit={handleRegister} className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8 pb-10 animate-in slide-in-from-right-4">
                     <div className="space-y-6">
-                       <div className="flex flex-col items-center"><div className={`relative w-36 h-36 rounded-[2rem] border-2 transition-all overflow-hidden cursor-pointer group ${finalImage ? 'border-[#00ff3c]' : 'border-dashed border-white/20'}`} onClick={() => fileInputRef.current.click()}>{finalImage ? <img src={finalImage} className="w-full h-full object-cover" alt="Avatar" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 group-hover:bg-white/5 transition-colors"><Upload size={24} className="mb-1"/><span className="text-[7px] font-black uppercase tracking-widest">SCAN_DNA</span></div>}</div></div>
+                       <div className="flex flex-col items-center">
+                        <div className={`relative w-36 h-36 rounded-[2rem] border-2 transition-all overflow-hidden cursor-pointer group ${finalImage ? 'border-[#00ff3c]' : 'border-dashed border-white/20'}`} onClick={() => fileInputRef.current.click()}>{finalImage ? <img src={finalImage} className="w-full h-full object-cover" alt="Avatar" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 group-hover:bg-white/5 transition-colors"><Upload size={24} className="mb-1"/><span className="text-[7px] font-black uppercase tracking-widest">SCAN_DNA</span></div>}</div>
+                        {finalImage && (
+                          <div className="mt-2 text-[10px] text-gray-400 flex items-center gap-1">
+                            <CheckCircle size={12} className="text-[#00ff3c]"/>
+                            <span>{imageSizeMB} MB</span>
+                          </div>
+                        )}
+                        {imageSizeMB  && (
+                          <div className="mt-3 text-[10px] font-black uppercase tracking-widest text-[#00ff3c]">
+                            SCAN_SIZE: {imageSizeMB} MB
+                          </div>
+                        )}
+                      </div>
                        <div className="space-y-1"><label className="text-[9px] text-gray-500 ml-1 uppercase font-bold tracking-widest">Identity Node</label><div className="relative group"><User className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-300 ${userStatus === 'available' ? 'text-[#00ff3c]' : userStatus === 'taken' ? 'text-red-500' : 'text-gray-600'}`} size={16}/><input name="username" value={formData.username || ''} onChange={handleInput} required type="text" placeholder="Unique ID..." className={`w-full bg-white/5 border rounded-xl py-3.5 pl-12 pr-12 outline-none text-sm transition-all ${userStatus === 'available' ? 'border-[#00ff3c]/40' : userStatus === 'taken' ? 'border-red-500/40' : 'border-white/10'}`} /><div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">{isChecking ? <Loader2 className="animate-spin text-gray-500" size={14}/> : <>{userStatus === 'available' && <CheckCircle className="text-[#00ff3c]" size={14}/>}{userStatus === 'taken' && <XCircle className="text-red-500" size={14}/>}</>}</div></div></div>
                        <div className="space-y-1"><label className="text-[9px] text-gray-500 ml-1 uppercase font-bold tracking-widest">Pilot Designation</label><div className="relative group"><Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-[#00ff3c] transition-colors" size={16}/><input name="fullname" value={formData.fullname || ''} onChange={handleInput} required type="text" placeholder="Your Name" className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 outline-none text-sm focus:border-[#00ff3c]/40 transition-all" /></div></div>
                     </div>
@@ -478,8 +508,34 @@ const Options = () => {
                 ) : (
                   <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-500 pb-8">
                     <div className="flex flex-col sm:flex-row items-center gap-6 p-5 bg-gradient-to-r from-white/[0.05] to-transparent border border-white/10 rounded-[1.5rem] relative overflow-hidden group">
-                      <div className="relative flex-shrink-0" onClick={() => fileInputRef.current.click()}><div className="w-20 h-20 rounded-2xl border-2 border-[#ff0505] p-0.5 bg-black overflow-hidden cursor-pointer relative group/avatar"><img src={finalImage || "/defaultProfile.png"} className="w-full h-full object-cover rounded-[calc(1rem-2px)] group-hover:scale-105 transition-transform" alt="Profile" /><div className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-opacity"><Upload size={16} className="text-[#ff0505]" /></div></div><div className="absolute -bottom-1 -right-1 bg-[#ff0505] p-1 rounded-lg shadow-lg border-[3px] border-[#0a0a0f]"><ShieldCheck size={10} className="text-white" /></div></div>
-                      <div className="text-center sm:text-left space-y-0.5"><h4 className="text-[8px] font-black tracking-[0.3em] text-[#ff0505] uppercase opacity-70">Authenticated_Pilot</h4><p className="text-2xl font-black uppercase tracking-tight text-white leading-tight">{info?.fullname || "Pilot Designation"}</p><p className="text-[10px] font-mono text-gray-500 lowercase opacity-60">@{info?.username || "identity_pending"}</p></div>
+                      <div className="relative flex-shrink-0" onClick={() => fileInputRef.current.click()}>
+                        <div className="w-20 h-20 rounded-2xl border-2 border-[#ff0505] p-0.5 bg-black overflow-hidden cursor-pointer relative group/avatar">
+                          <img src={finalImage || "/defaultProfile.png"} className="w-full h-full object-cover rounded-[calc(1rem-2px)] group-hover:scale-105 transition-transform" alt="Profile" />
+                          <div className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-opacity">
+                            <Upload size={16} className="text-[#ff0505]" />
+                          </div>
+                        </div>
+                        <div className="absolute -bottom-1 -right-1 bg-[#ff0505] p-1 rounded-lg shadow-lg border-[3px] border-[#0a0a0f]">
+                          <ShieldCheck size={10} className="text-white" />
+                        </div>
+                      </div>
+                      
+                      {/* 2. Text & Metadata Section */}
+                      <div className="text-center sm:text-left space-y-0.5">
+                        <h4 className="text-[8px] font-black tracking-[0.3em] text-[#ff0505] uppercase opacity-70">Authenticated_Pilot</h4>
+                        <p className="text-2xl font-black uppercase tracking-tight text-white leading-tight">{info?.fullname || "Pilot Designation"}</p>
+                        <p className="text-[10px] font-mono text-gray-500 lowercase opacity-60">@{info?.username || "identity_pending"}</p>
+                        
+                        {/* ✅ MOVED SCAN SIZE HERE: Flows perfectly under the username */}
+                        {imageSizeMB && (
+                          <div className="pt-2 flex items-center justify-center sm:justify-start gap-1.5">
+                            <CheckCircle size={10} className="text-[#00ff3c]" />
+                            <span className="text-[9px] font-black uppercase tracking-widest text-[#00ff3c]">
+                              SCAN_SIZE: {imageSizeMB} MB
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="space-y-6 bg-white/[0.02] border border-white/5 p-6 rounded-[2rem] flex flex-col justify-between">
@@ -503,7 +559,7 @@ const Options = () => {
                       <div className="bg-red-950/10 border border-red-900/10 p-6 rounded-[2rem] space-y-4"><div className="flex items-center gap-2 text-red-900/60"><Trash2 size={14} /><span className="text-[9px] font-black uppercase tracking-widest">Protocol: PURGE_ID</span></div><button onClick={handleDeleteAccount} className="w-full py-3.5 bg-transparent border border-red-900/30 text-red-900 hover:bg-red-900 hover:text-white font-black uppercase text-[10px] rounded-xl transition-all active:scale-95">TERMINATE_IDENTITY</button></div>
                     </div>
                   </div>
-                </div>
+                  </div>
                 )
               )}
               { subOption==="setting" && (

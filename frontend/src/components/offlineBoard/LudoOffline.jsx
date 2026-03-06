@@ -333,7 +333,7 @@ const LudoOffline = memo(() => {
   }), [winR, winB, winY, winG]);
 
   const isFinished = gameStatus === "FINISHED";
-  console.log(isFinished)
+  // console.log(isFinished)
   useEffect(() => {
     const handleResize = () => {
       setScreen(window.innerWidth < window.innerHeight);
@@ -347,7 +347,7 @@ const LudoOffline = memo(() => {
     navigate('/dashboard');
   };
 
-  // console.log(pieceIdx/)
+  // console.log(playersSet)
 
   return (
     <div className="w-full h-full min-h-screen bg-[#050502] flex items-center justify-center relative overflow-hidden">
@@ -357,7 +357,7 @@ const LudoOffline = memo(() => {
       <div className="absolute inset-0 z-0 opacity-10" style={{backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '30px 30px'}}></div>
 
       {/* --- SOUND TOGGLE --- */}
-      <div className="absolute z-50 top-2 left-2 sm:top-4 sm:left-4" onClick={() => allowSound(pre => !pre)}>
+      {/* <div className="absolute z-50 top-2 left-2 sm:top-4 sm:left-4" onClick={() => allowSound(pre => !pre)}>
         <button className={`flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-md transition-all duration-300
           ${sound ? 'bg-[#00ff3c]/10 border-[#00ff3c]/50 text-[#00ff3c] shadow-[0_0_15px_rgba(0,255,60,0.3)]' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
         >
@@ -366,7 +366,7 @@ const LudoOffline = memo(() => {
             {sound ? 'ON' : 'OFF'}
           </span>
         </button>
-      </div>
+      </div> */}
 
       {/* --- MAIN GAME CONTAINER (Blurs and locks when finished) --- */}
       <div
@@ -385,7 +385,7 @@ const LudoOffline = memo(() => {
             <div className="dice-cover relative z-10 w-full h-full flex items-center justify-center rounded-xl bg-[#0a0a0f]/80 backdrop-blur-xl border border-white/10 transition-all duration-300 shadow-xl" style={{ borderColor: curColor, boxShadow: `inset 0 0 15px ${curColor}15` }}>
                <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 border-t border-l opacity-50" style={{borderColor: curColor}}/>
                <div className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 border-b border-r opacity-50" style={{borderColor: curColor}}/>
-              <Dice turn={turn} pieceIdx={pieceIdx} winPosn={winPosn} ticks={moveObj.ticks} homeCount={homeCount} rollAllowed={rollAllowed} moveAllowed={moveObj.moveAllowed} timeOut={timeOut} gameFinished={isFinished} winState={winState} sound={sound}/>
+              <Dice turn={turn} pieceIdx={pieceIdx} winPosn={winPosn} ticks={moveObj.ticks} homeCount={homeCount} rollAllowed={rollAllowed} moveAllowed={moveObj.moveAllowed} timeOut={timeOut} gameFinished={isFinished} winState={winState}/>
             </div>
           </div>
           <div className="h-full flex-1 max-w-[35%] min-w-0">
@@ -404,7 +404,6 @@ const LudoOffline = memo(() => {
                   moving={moveObj.moving}
                   pieceIdxArr={pieceIdx}
                   winState={winState}
-                  sound={sound}
                 />
               </ErrorBoundary>
             </div>
