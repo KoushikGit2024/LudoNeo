@@ -286,7 +286,11 @@ const registerHandler = async (req, res, next) => {
         // 2. Upload Avatar (Consider moving this to frontend)
         let avatarUrl = "/defaultProfile.png";
         if (file) {
-            const uploadResponse = await imagekit.upload({ ... });
+            const uploadResponse = await imagekit.upload({
+                file: file.buffer,
+                fileName: `profile_${username}_${Date.now()}`,
+                folder: "/LudoChamp"
+            });
             avatarUrl = uploadResponse.url;
         }
 
