@@ -50,7 +50,6 @@ const corsOptions = {
   credentials: true
 };
 
-console.log(corsOptions);
 // ===== Middlewares =====
 app.use(cors(corsOptions));
 app.use(express.json());
