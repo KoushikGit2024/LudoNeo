@@ -64,7 +64,10 @@ connectMongo();
 
 // ===== Socket.io Setup =====
 const io = new Server(server, {
-    cors: corsOptions, 
+    cors: {
+        origin: allowedOrigins,
+        credentials: true
+    }, 
 });
 
 // Socket Middleware: Verify User via JWT Cookie
