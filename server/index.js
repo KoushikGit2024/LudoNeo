@@ -27,18 +27,30 @@ const PORT = process.env.PORT || 3000;
 
 // ===== CORS Configuration =====
 const rawOrigins = process.env.CORS_ORIGIN || "";
-const allowedOrigins = rawOrigins.split(",").map((o) => o.trim()).filter(Boolean);
+
+const allowedOrigins = rawOrigins
+  .split(",")
+  .map(o => o.trim());
 
 const corsOptions = {
-    origin: process.env.NODE_ENV === "production"
-        ? (origin, cb) => {
-            if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-            return cb(new Error("Origin not allowed by CORS"), false);
-        }
-        : true,
-    credentials: true,
+  origin: (origin, cb) => {
+
+    if (process.env.NODE_ENV !== "production") {
+      return cb(null, true);
+    }
+
+    if (!origin) return cb(null, true);
+
+    if (allowedOrigins.some(o => origin.startsWith(o))) {
+      return cb(null, true);
+    }
+
+    return cb(new Error("Origin not allowed by CORS"), false);
+  },
+  credentials: true
 };
 
+console.log(corsOptions);
 // ===== Middlewares =====
 app.use(cors(corsOptions));
 app.use(express.json());
