@@ -89,7 +89,7 @@ const updateProfile = async (req, res, next) => {
             await redis.set(`verify:${verificationToken}`, user.email, { EX: 3600 });
             const verificationUrl = `http://localhost:5173/options/signin?token=${verificationToken}`;
 
-            await sendEmail({
+            sendEmail({
                 email: user.email,
                 subject: `SYSTEM: Identity Uplink Required for Pilot ${user.fullname}`,
                 message: `
@@ -279,64 +279,36 @@ const registerHandler = async (req, res, next) => {
         const { fullname, username, email, password } = req.body;
         const file = req.file;
 
+        // 1. Fast DB Check
         const userExists = await User.findOne({ $or: [{ email }, { username }] });
-        // console.log(userExists);
         if (userExists) return res.status(400).json({ success: false, message: "User already exists" });
 
+        // 2. Upload Avatar (Consider moving this to frontend)
         let avatarUrl = "/defaultProfile.png";
         if (file) {
-            const uploadResponse = await imagekit.upload({
-                file: file.buffer,
-                fileName: `profile_${username}_${Date.now()}`,
-                folder: "/LudoChamp"
-            });
+            const uploadResponse = await imagekit.upload({ ... });
             avatarUrl = uploadResponse.url;
         }
 
+        // 3. Prepare Verification
         const verificationToken = generateToken();
-        await redis.set(`verify:${verificationToken}`, email, { EX: 3600 });
         const verificationUrl = `http://localhost:5173/options/signin?token=${verificationToken}`;
 
-        await sendEmail({
+        // 4. Parallelize non-dependent tasks
+        // We run Redis and DB creation together to save time
+        await Promise.all([
+            redis.set(`verify:${verificationToken}`, email, { EX: 3600 }),
+            User.create({ fullname, username, email, password, avatar: avatarUrl, isVerified: false })
+        ]);
+
+        // 5. DO NOT 'await' the email. Let it run in the background.
+        sendEmail({
             email,
-            subject: `SYSTEM: Identity Uplink Required for Pilot ${fullname}`,
-            message: `
-                <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
-                    <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
-                        <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
-                            [ UPLINK_PROTOCOL: v3.0 ]
-                        </h2>
-                        <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
-                    </div>
-                    <div style="line-height: 1.6;">
-                        <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
-                            Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname}</span>
-                        </h1>
-                        <p style="font-size: 14px; color: #a0a0a0;">
-                            Your neural signature has been detected. To finalize your integration into the 
-                            <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
-                            pilot identity through our secure verification node.
-                        </p>
-                        <div style="text-align: center; margin: 40px 0;">
-                            <a href="${verificationUrl}" 
-                            style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
-                            INITIALIZE_NEURAL_LINK
-                            </a>
-                        </div>
-                        <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
-                            <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
-                            If this uplink was not requested by you, please terminate the connection and ignore this data packet.
-                        </div>
-                    </div>
-                    <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
-                        &copy; 2026 Ludo Neo Grid Operations // Sector 7
-                    </div>
-                </div>
-            `,
-        });
+            subject: `SYSTEM: Identity Uplink Required...`,
+            message: `...` 
+        }).catch(err => console.error("SMTP Error:", err));
 
-        await User.create({ fullname, username, email, password, avatar: avatarUrl, isVerified: false });
-
+        // 6. Respond immediately
         res.status(200).json({ 
             success: true, 
             message: "Initialization link broadcast. Check your neural uplink (email)." 
@@ -376,7 +348,7 @@ const forgotPassword = async (req, res, next) => {
         await redis.set(`reset:${resetToken}`, email, { EX: 3600 });
         const resetUrl = `http://localhost:5173/options/signin?reset=${resetToken}&id=${user.email}&mode=reset`;
 
-        await sendEmail({
+        sendEmail({
             email,
             subject: "SYSTEM: Access Cipher Recovery - Ludo Neo",
             message: `
