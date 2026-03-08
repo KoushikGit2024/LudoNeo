@@ -111,10 +111,13 @@ const Session = () => {
 
     if (isOnlineMode && !userInfo?.email) {
       toast.info("Neural link requires Pilot Registration.", { theme: "dark" });
-      navigate("/options/signin");
+      navigate("/dashboard"); // ✅ Changed to redirect to dashboard
     } else if (isOnlineMode) {
       socket.connect();
-      console.log("Socket Connected",socket);
+
+      socket.on("connect", (data) => {
+        console.log("Socket Connected",socket, "data",data);
+      })
     }
 
     return () => {

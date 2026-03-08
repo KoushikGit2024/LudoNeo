@@ -337,8 +337,9 @@ const GameSetup = () => {
                           onChange={(e) => setBotDifficulty(p => ({...p, [colorId]: e.target.value}))} 
                           className="bg-black/40 border border-[#00ff3c]/20 rounded px-2 py-0.5 text-[8px] font-black text-[#00ff3c] uppercase outline-none cursor-pointer hover:bg-[#00ff3c]/10 transition-colors"
                         >
-                          <option value="Normal" className="bg-[#0a0a0f] text-[#00ff3c]">NEURAL_CORE</option>
-                          <option value="Hard" className="bg-[#0a0a0f] text-[#00ff3c]">QUANTUM_CORE</option>
+                          <option value="easy" className="bg-[#0a0a0f] text-[#00ff3c]">NEURAL_CORE</option>
+                          <option value="medium" className="bg-[#0a0a0f] text-[#00ff3c]">OCTA_CORE</option>
+                          <option value="hard" className="bg-[#0a0a0f] text-[#00ff3c]">QUANTUM_CORE</option>
                         </select>
                     </div>
                   )}

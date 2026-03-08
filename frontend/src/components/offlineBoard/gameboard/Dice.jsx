@@ -1,61 +1,78 @@
-
 import { useEffect, useRef, useState, useMemo, useContext } from "react";
 import DiceFace from "../../sharedBoardComponents/DiceFace";
-import '../../../styles/dice.css'; // Preserving your CSS import
+import '../../../styles/dice.css'; 
 import useGameStore from '@/store/useGameStore'
 import gameActions from '@/store/gameLogic'
 import DiceRoll from "../../../assets/DiceRoll.mp3";
-import { Sparkles, Lock } from "lucide-react"; // Icons for status
-import { Bounce, toast } from "react-toastify";
+import { Sparkles, Lock } from "lucide-react"; 
 import { AudioContext } from "@/contexts/SoundContext";
 
 const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, winState }) => {
-  const moveCount=useGameStore(state=>state?.move?.moveCount)
+  const moveCount = useGameStore(state => state?.move?.moveCount)
   const [rolling, setRolling] = useState(false);
-  const [value, setValue] = useState(moveCount||1);
-  const {sound}=useContext(AudioContext)
-  // --- STORE HOOKS (Unchanged) ---
+  const [value, setValue] = useState(moveCount || 1);
+  const { sound } = useContext(AudioContext)
+  
+  // --- STORE HOOKS ---
   const pathCount = useGameStore((state) => state.players[turn]?.pathCount);
   const timeOut = useGameStore((state) => state.move.timeOut);
-
+  const botDifficulty = useGameStore((state) => state.players[turn]?.difficulty); // ✅ Check if bot
 
   const updateMoveCount = gameActions.updateMoveCount;
   const transferTurn = gameActions.transferTurn;
-  
-  const updateTimeOut = gameActions.updateTimeOut
+  const updateTimeOut = gameActions.updateTimeOut;
   const audioRef = useRef(null);
 
-  // --- LOGIC (Unchanged) ---
+  // ✅ Synchronous lock to prevent rapid double-clicks bypassing React state
+  const isRollingRef = useRef(false);
+
   const playSound = () => {
     if (!audioRef.current || !sound) return;
     audioRef.current.currentTime = 0;
     audioRef.current.play();
   };
 
+  // ✅ Gatekeeper for human interaction
+  const handleUserClick = () => {
+    if (botDifficulty || isRollingRef.current || !rollAllowed) return;
+    rollDice();
+  };
+
   const rollDice = () => {
-    if (rolling || !rollAllowed) return;
+    // Failsafe checks
+    if (isRollingRef.current || !rollAllowed) return;
+    
     if (winState[turn] !== 0) {
-      console.log('Player won transfer next');
       transferTurn(1);
       return;
     }
+
+    // Lock the dice instantly
+    isRollingRef.current = true;
     setRolling(true);
     playSound();
+    
     const interval = setInterval(() => {
       setValue(Math.floor(Math.random() * 6) + 1);
     }, 100);
+    
     setTimeout(() => {
       clearInterval(interval);
       let final;
       do {
         final = Math.floor(Math.random() * 6) + 1;
-      } while (ticks >= 2 && final === 6);
+      } while (ticks >= 2 && final === 6); // Prevent 3 sixes in a row
+      
       setValue(final);
+      
+      // Stop the visual animation and release the lock safely
       setRolling(false);
+      isRollingRef.current = false; 
+      
       setTimeout(() => {
         afterDiceRoll(final);
       }, 500);
-    }, 1900);//1900
+    }, 1900);
   };
 
   const afterDiceRoll = (final) => {
@@ -74,43 +91,59 @@ const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, win
     );
 
     if (!canMove) {
-      
       transferTurn(1);
     }
   };
 
+  // --- AUTOMATION EFFECTS ---
+
+  // 1. Human Timeout Auto-Roll
   useEffect(() => {
-    if (gameFinished) {
-      alert('game is Finished');
-      return;
-    }
-    if (!timeOut || gameFinished) return;
-    if (rollAllowed) {
+    if (gameFinished) return;
+    if (!timeOut) return;
+    if (rollAllowed && !isRollingRef.current) {
       rollDice();
       updateTimeOut(false);
     }
-    // console.log('hi')
-  }, [timeOut]);
+  }, [timeOut, gameFinished, rollAllowed]);
+
+  // 2. ✅ Bot Auto-Roll based on Difficulty
+  useEffect(() => {
+    if (gameFinished || !botDifficulty || !rollAllowed || isRollingRef.current) return;
+
+    // Simulate "thinking" time based on difficulty
+    const thinkDelay = botDifficulty === 'hard' ? 400 : botDifficulty === 'medium' ? 800 : 1200;
+    
+    const timer = setTimeout(() => {
+      rollDice();
+    }, thinkDelay);
+
+    return () => clearTimeout(timer);
+  }, [botDifficulty, rollAllowed, turn, gameFinished]);
 
   // --- VISUAL & THEME CONSTANTS ---
   const DICE_COLORS = useMemo(() => ({
-    R: "#ff0505", // Red
-    B: "#2b01ff", // Blue
-    Y: "#fff200", // Yellow
-    G: "#00ff3c"  // Green
+    R: "#ff0505", 
+    B: "#2b01ff", 
+    Y: "#fff200", 
+    G: "#00ff3c"  
   }), []);
 
   const activeColor = DICE_COLORS[turn] || "#ffffff";
+  
+  // ✅ Determine if the UI should show as "interactable" for the human
+  const isHumanTurnInteractable = rollAllowed && !botDifficulty && !rolling;
 
   return (
     <div
       className="dice-cover relative w-full h-full flex items-center justify-center p-[10%]"
-      onClick={rollDice}
+      onClick={handleUserClick} // ✅ Safely routed through human click handler
       style={{
-        cursor: (rollAllowed) ? 'pointer' : 'not-allowed',
+        cursor: isHumanTurnInteractable ? 'pointer' : 'not-allowed',
+        // ✅ Physically prevents clicks while rolling or during bot turns
+        pointerEvents: isHumanTurnInteractable ? 'auto' : 'none'
       }}
     >
-      {/* 1. Ambient Glow Ring (Pulses when active) */}
       <div 
         className={`absolute inset-0 rounded-full transition-all duration-500 blur-xl opacity-20`}
         style={{
@@ -118,37 +151,29 @@ const Dice = ({ pieceIdx, ticks, gameFinished, homeCount, rollAllowed, turn, win
           transform: rolling ? 'scale(1.2)' : 'scale(1)'
         }}
       />
-
-      {/* 2. Status Icons (Floating above) */}
       <div className="absolute -top-1 right-0 z-20">
          {!rollAllowed && <Lock size={12} className="text-gray-500 opacity-50" />}
-         {rollAllowed && !rolling && <Sparkles size={12} className="animate-ping" style={{color: activeColor}} />}
+         {/* Show sparkle ONLY if it's waiting for the human to click */}
+         {isHumanTurnInteractable && <Sparkles size={12} className="animate-ping" style={{color: activeColor}} />}
       </div>
-
-      {/* 3. The Dice Cube Container */}
       <div
         className={`dice-container relative z-10 w-full aspect-square rounded-xl flex items-center justify-center transition-all duration-300
           ${rolling ? "rolling" : ""} 
           ${!rollAllowed ? "grayscale opacity-50 scale-90" : "scale-100"}
         `}
         style={{
-          backgroundColor: '#e6e6e6', // Slight off-white to act as a "light source"
+          backgroundColor: '#e6e6e6', 
           boxShadow: rollAllowed 
             ? `0 0 20px ${activeColor}, inset 0 0 10px white` 
             : 'inset 0 0 10px black',
           border: `2px solid ${rollAllowed ? 'white' : '#333'}`,
         }}
       >
-        {/* Dice Face Render */}
         <div className="w-full h-full flex items-center justify-center p-1">
-          {/* We wrap the Face to control color tinting if needed via mix-blend-mode or just let it sit */}
            <DiceFace value={value} />
         </div>
-
-        {/* Glossy Overlay for "Glass" effect */}
         <div className="absolute inset-0 rounded-xl bg-gradient-to-tr from-white/40 to-transparent pointer-events-none" />
       </div>
-
       <audio ref={audioRef} src={DiceRoll} preload="auto" />
     </div>
   );

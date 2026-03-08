@@ -50,7 +50,7 @@ const corsOptions = {
   credentials: true
 };
 
-console.log(allowedOrigins);
+// console.log(allowedOrigins);
 // ===== Middlewares =====
 app.use(cors({
     origin: allowedOrigins,

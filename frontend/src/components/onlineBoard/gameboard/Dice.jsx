@@ -5,12 +5,16 @@ import DiceRoll from "../../../assets/DiceRoll.mp3";
 import { Sparkles, Lock } from "lucide-react"; 
 import { AudioContext } from "@/contexts/SoundContext";
 
-// Receives socket, gameId, and store states from LudoOnline
-const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline }) => {
+// ✅ Added myColor prop for frontend validation
+const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myColor }) => {
   const { sound } = useContext(AudioContext);
   const [rolling, setRolling] = useState(false);
   const [value, setValue] = useState(1);
   const audioRef = useRef(null);
+
+  // ✅ Security Check: Is it actually this client's turn?
+  const isMyTurn = !isOnline || (myColor === turn);
+  const canRoll = rollAllowed && !gameFinished && isMyTurn;
 
   // --- AUDIO LOGIC ---
   const playSound = () => {
@@ -21,14 +25,14 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline }) => 
 
   // --- USER ACTION ---
   const handleUserClick = () => {
-    // Prevent clicking if not allowed, already rolling, or game over
-    if (rolling || !rollAllowed || gameFinished) return;
+    // ✅ Prevent clicking if not allowed, not your turn, already rolling, or game over
+    if (rolling || !canRoll) return;
     
     // Online Flow
     if (isOnline && socket) {
        socket.emit("roll-dice", { gameId, color: turn });
     } 
-    // Offline Flow (If you reuse this component offline)
+    // Offline Flow 
     else if (!isOnline) {
        setRolling(true);
        playSound();
@@ -41,7 +45,6 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline }) => 
          const finalValue = Math.floor(Math.random() * 6) + 1;
          setValue(finalValue);
          setRolling(false);
-         // You would trigger your local Zustand action here
        }, 500);
     }
   };
@@ -50,26 +53,19 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline }) => 
   useEffect(() => {
     if (!isOnline || !socket) return;
 
-    // Listen for the server telling us the outcome of a roll
     const handleDiceRolled = ({ value: finalValue }) => {
-      // Start visual animation locally
       setRolling(true);
       playSound();
 
-      // Scramble numbers quickly for visual effect
       const interval = setInterval(() => {
         setValue(Math.floor(Math.random() * 6) + 1);
       }, 100);
 
-      // Stop scrambling and show the REAL value sent by the server
       setTimeout(() => {
         clearInterval(interval);
-        setValue(finalValue); // Set to server's true value
+        setValue(finalValue); 
         setRolling(false);
-        
-        // Note: LudoOnline handles syncing the new game state 
-        // via the 'syncArray' logic, so we don't dispatch Zustand here.
-      }, 500); // 500ms animation duration
+      }, 500); 
     };
 
     socket.on("dice-rolled", handleDiceRolled);
@@ -94,22 +90,24 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline }) => 
       className="dice-cover relative w-full h-full flex items-center justify-center p-[10%]"
       onClick={handleUserClick}
       style={{
-        cursor: (rollAllowed && !gameFinished) ? 'pointer' : 'not-allowed',
+        // ✅ Only show pointer cursor if it's ACTUALLY your turn
+        cursor: canRoll ? 'pointer' : 'not-allowed',
       }}
     >
-      {/* 1. Ambient Glow Ring (Pulses when active) */}
+      {/* 1. Ambient Glow Ring (Pulses when active AND it's your turn) */}
       <div 
         className={`absolute inset-0 rounded-full transition-all duration-500 blur-xl opacity-20`}
         style={{
-          background: rollAllowed ? `radial-gradient(circle, ${activeColor}, transparent 70%)` : 'transparent',
+          background: canRoll ? `radial-gradient(circle, ${activeColor}, transparent 70%)` : 'transparent',
           transform: rolling ? 'scale(1.2)' : 'scale(1)'
         }}
       />
 
-      {/* 2. Status Icons (Floating above) */}
+      {/* 2. Status Icons */}
       <div className="absolute -top-1 right-0 z-20">
          {(!rollAllowed || gameFinished) && <Lock size={12} className="text-gray-500 opacity-50" />}
-         {(rollAllowed && !rolling && !gameFinished) && <Sparkles size={12} className="animate-ping" style={{color: activeColor}} />}
+         {/* ✅ Only show the sparkle if it's YOUR turn to roll */}
+         {(canRoll && !rolling) && <Sparkles size={12} className="animate-ping" style={{color: activeColor}} />}
       </div>
 
       {/* 3. The Dice Cube Container */}

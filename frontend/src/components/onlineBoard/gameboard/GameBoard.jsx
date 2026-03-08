@@ -6,34 +6,31 @@ import FinishSound from '../../../assets/FinishSound.mp3';
 import gsap from "gsap";
 import debounce from '../../../derivedFuncs/debounce.js';
 import Cell from "../../sharedBoardComponents/Cell.jsx";
-import useGameStore from '@/store/useGameStore'
-import gameActions from '@/store/gameLogic'
+import useGameStore from '@/store/useGameStore';
+import gameActions from '@/store/gameLogic';
 import { useShallow } from "zustand/shallow";
 import piecePath from "../../../contexts/PiecePath.js";
 import { AudioContext } from "@/contexts/SoundContext";
 
-const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, pieceIdxArr, winState }) => {
+// ✅ Added myColor prop
+const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, pieceIdxArr, winState, myColor }) => {
   
   // =========================================================================
   // ========================== UTILITY LAYER ================================
   // =========================================================================
-  const {sound}=useContext(AudioContext);
+  const { sound } = useContext(AudioContext);
+  
   const findIdxByref = (color, ref) => {
-    let baseStartIdx =
-      color === 'R' ? 79 :
-      color === 'B' ? 83 :
-      color === 'Y' ? 87 :
-      91;
+    let baseStartIdx = color === 'R' ? 79 : color === 'B' ? 83 : color === 'Y' ? 87 : 91;
     let foundIdx = pieceIdxArr[color].findIndex((el, idx) => {
       if (el === -1) {
         return ref === baseStartIdx - idx;
-      }
-      else {
+      } else {
         return piecePath[color][el] === ref;
       }
-    })
-    return foundIdx
-  }
+    });
+    return foundIdx;
+  };
 
   const pathRefs = useRef([]);
   const boardRef = useRef(null);
@@ -42,7 +39,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
   const audioRefFinish = useRef(null);
   const inputLockedRef = useRef(false);
   
-  const { turn, moveAllowed, onBoard, clrR, clrB, clrY, clrG, homeR, homeB, homeY, homeG, winR, winB, winY, winG } = useGameStore(
+  const { turn, moveAllowed, onBoard, clrR, clrB, clrY, clrG, winR, winB, winY, winG } = useGameStore(
     useShallow(state => ({
       turn: state.move.turn,
       moveAllowed: state.move.moveAllowed,
@@ -51,16 +48,16 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
       clrB: state.players.B?.color,
       clrY: state.players.Y?.color,
       clrG: state.players.G?.color,
-      homeR: state.players.R?.homeCount,
-      homeB: state.players.B?.homeCount,
-      homeY: state.players.Y?.homeCount,
-      homeG: state.players.G?.homeCount,
       winR: state.players.R?.winCount,
       winB: state.players.B?.winCount,
       winY: state.players.Y?.winCount,
       winG: state.players.G?.winCount,
     }))
   );
+
+  // ✅ Security Check: Determine if the current client is allowed to interact with the board
+  const isMyTurn = !isOnline || (myColor === turn);
+  const canMove = moveAllowed && isMyTurn && !moving;
 
   const COLORS = useMemo(() => ({
     R: clrR, B: clrB, Y: clrY, G: clrG
@@ -70,17 +67,15 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     R: winR, B: winB, Y: winY, G: winG
   }), [winR, winB, winY, winG]);
 
-  const pieceR = useGameStore(state => state.players.R?.pieceRef);
-  const pieceB = useGameStore(state => state.players.B?.pieceRef);
-  const pieceY = useGameStore(state => state.players.Y?.pieceRef);
-  const pieceG = useGameStore(state => state.players.G?.pieceRef);
-
   const pieceState = {
-    R: pieceR, B: pieceB, Y: pieceY, G: pieceG
-  }
+    R: useGameStore(state => state.players.R?.pieceRef), 
+    B: useGameStore(state => state.players.B?.pieceRef), 
+    Y: useGameStore(state => state.players.Y?.pieceRef), 
+    G: useGameStore(state => state.players.G?.pieceRef)
+  };
   
-  const [pathPoints, setPathPoints] = useState([])
-  const [showChariot, setShowChariotDisplay] = useState(false)
+  const [pathPoints, setPathPoints] = useState([]);
+  const [showChariot, setShowChariotDisplay] = useState(false);
   const [chariotColor, setChariotColor] = useState('R');
 
   const Homes = useMemo(() => ([
@@ -95,7 +90,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     { color: COLORS.G, clip: "polygon(100% 0%, 100% 100%, 50% 50%)", align: "flex items-center justify-end pr-1", ref: 75, rotate: "rotate-315" }, 
     { color: COLORS.R, clip: "polygon(100% 100%, 0% 100%, 50% 50%)", align: "flex justify-center items-end pb-1", ref: 72, rotate: "rotate-45" }, 
     { color: COLORS.B, clip: "polygon(0% 100%, 0% 0%, 50% 50%)", align: "flex items-center pl-1", ref: 73, rotate: "rotate-135" },
-  ]), [COLORS.R,COLORS.B,COLORS.Y,COLORS.G]);
+  ]), [COLORS]);
 
   const SAFE_CELLS = new Set([1, 9, 14, 22, 27, 35, 40, 48, 52]);
   const homePointer = new Map([
@@ -104,12 +99,10 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
 
   const playSound = (playCase = -1) => {
     if (playCase === -1 || !sound) return;
-    if (playCase === 1) {
-      if (!audioRef.current) return;
+    if (playCase === 1 && audioRef.current) {
       audioRef.current.currentTime = 0;
       audioRef.current.play();
-    } else if (playCase === 2) {
-      if (!audioRefFinish.current) return
+    } else if (playCase === 2 && audioRefFinish.current) {
       audioRefFinish.current.currentTime = 0;
       audioRefFinish.current.play();
     }
@@ -133,11 +126,10 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
 
   useEffect(() => {
     pathPointCalculator();
-    const resizeHandler = debounce(pathPointCalculator, 100)
+    const resizeHandler = debounce(pathPointCalculator, 100);
     window.addEventListener('resize', resizeHandler);
     return () => window.removeEventListener('resize', resizeHandler);
   }, []);
-
 
   // =========================================================================
   // ====================== ANIMATION & NETWORK LAYER ========================
@@ -204,7 +196,8 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
 
   // 1. EMIT INTENT TO SERVER
   const determineAndProcessClickCell = (refNum) => {
-    if (!isOnline || !socket || !moveAllowed || moving || inputLockedRef.current) return;
+    // ✅ Apply the strict frontend check (canMove incorporates isMyTurn)
+    if (!isOnline || !socket || !canMove || inputLockedRef.current) return;
     
     const pieceCount = pieceState[turn].get(refNum) ?? 0;
     if (!pieceCount) return;
@@ -216,8 +209,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     socket.emit("move-piece", { gameId, color: turn, pieceIdx: idx, refNum });
   };
 
-  // 2. LISTEN FOR SERVER COMMANDS WITH STRICT SYNC ARRAY
-  // The 2-size array: [previousTick, currentTick]
+  // 2. LISTEN FOR SERVER COMMANDS
   const syncArrRef = useRef([0, 0]);
 
   useEffect(() => {
@@ -226,24 +218,20 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     const handlePieceMoved = async (payload) => {
       const { animation, newState, syncArray } = payload;
 
-      // --- CRITICAL DESYNC CHECK ---
       if (syncArray && Array.isArray(syncArray) && syncArray.length === 2) {
-        const localCurrent = syncArrRef.current[1]; // Frontend index 1
-        const serverPrevious = syncArray[0];        // Server index 0
-
-        // If our current tick doesn't perfectly match the server's previous tick...
+        const localCurrent = syncArrRef.current[1]; 
+        const serverPrevious = syncArray[0];        
+        
         if (localCurrent !== 0 && localCurrent !== serverPrevious) {
           console.warn(`[DESYNC] Expected Server Prev: ${localCurrent}, Got: ${serverPrevious}`);
-          inputLockedRef.current = false; // Release lock
-          socket.emit("sync-state", { gameId }); // Force a hard refresh
-          return; // Abort animation entirely!
+          inputLockedRef.current = false; 
+          socket.emit("sync-state", { gameId }); 
+          return; 
         }
         
-        // Everything matches! Update local array to match server
         syncArrRef.current = [syncArray[0], syncArray[1]];
       }
-      // -----------------------------
-
+      
       inputLockedRef.current = true;
       gameActions.setMoving(true);
 
@@ -260,13 +248,10 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
       inputLockedRef.current = false;
     };
 
-    // --- PASSIVE LISTENERS TO KEEP ARRAY UPDATED ---
-    // If a dice roll happens, we must quietly update our array so the next piece move doesn't falsely desync
     const handleDiceRolled = (payload) => {
       if (payload.syncArray) syncArrRef.current = payload.syncArray;
     };
 
-    // If a hard refresh happens, establish the new baseline
     const handleStateSynced = (serverState) => {
       if (serverState.syncTick) {
         syncArrRef.current = [serverState.syncTick - 1, serverState.syncTick];
@@ -291,7 +276,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
 
   return (
     <div
-      className="boardContainer relative grid gap-[2px] rounded-xl max-w-full max-h-full p-0  shadow-2xl aspect-square"
+      className="boardContainer relative grid gap-[2px] rounded-xl max-w-full max-h-full p-0 shadow-2xl aspect-square"
       style={{ background: '#020205', boxShadow: '0 0 50px rgba(0,0,0,0.8)' }}
       ref={boardRef}
     >
@@ -307,15 +292,17 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
         else if (i === 27) neonColor = COLORS.Y;
         else if (i === 40) neonColor = COLORS.G;
 
+        // ✅ Only show hover cursor if the move is allowed AND it's your turn
+        const cursorStyle = canMove ? 'cursor-pointer hover:bg-white/10' : 'cursor-default';
+
         return (
           <div
             key={i}
-            className={`box${i + 1} relative flex items-center justify-center rounded-[4px] transition-all duration-300 hover:bg-white/10 cursor-pointer box-border`}
+            className={`box${i + 1} relative flex items-center justify-center rounded-[4px] transition-all duration-300 ${cursorStyle} box-border`}
             onClick={() => determineAndProcessClickCell(i)}
-            
           >
             <div
-              className={`cell w-full h-full flex items-center justify-center rounded-[3px] bg-white/5 backdrop-blur-sm border  box-border`}
+              className={`cell w-full h-full flex items-center justify-center rounded-[3px] bg-white/5 backdrop-blur-sm border box-border`}
               style={{
                 borderColor: neonColor ? neonColor : cellBorderColor,
                 boxShadow: neonColor ? `inset 0 0 15px ${neonColor}33` : 'none',
@@ -341,7 +328,8 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
                 G={pieceState.G?.get(i) ?? 0}
                 activeColor={turn}
                 COLORS={COLORS}
-                moveAllowed={moveAllowed}
+                // ✅ Passes down canMove to Cell so pieces only pulse when it's YOUR turn
+                moveAllowed={canMove} 
               />
             </div>
           </div>
@@ -356,7 +344,6 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
             <div
               className={`track${c}${n} relative flex items-center justify-center rounded-[4px] aspect-square`}
               key={`${c}${n}`}
-              
             >
               <div
                 className={`cell w-full h-full rounded-[3px] flex items-center justify-center bg-black/40 border transition-all`}
@@ -374,7 +361,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
                   G={pieceState.G?.get(i * 5 + j + 52) ?? 0}
                   activeColor={turn}
                   COLORS={COLORS}
-                  moveAllowed={moveAllowed}
+                  moveAllowed={canMove} 
                 />
               </div>
             </div>
@@ -385,7 +372,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
       {/* --- HOMES (The 4 Corners) --- */}
       {Homes.map(({ keyId, color, base }) => (
         <div
-          className={`home${keyId} relative p-2 flex flex-col items-center justify-center rounded-[10%] bg-black/20 `}
+          className={`home${keyId} relative p-2 flex flex-col items-center justify-center rounded-[10%] bg-black/20`}
           key={keyId}
         >
           <div
@@ -402,7 +389,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
                   <div
                     key={i}
                     ref={el => (pathRefs.current[base + i] = el)}
-                    className={`home${keyId}${i + 1} w-auto h-[80%] aspect-square self-center justify-self-center flex items-center justify-center rounded-full border-2 transition-all hover:scale-105 hover:shadow-[0_0_15px_currentColor] cursor-pointer bg-black/40 backdrop-blur-sm`}
+                    className={`home${keyId}${i + 1} w-auto h-[80%] aspect-square self-center justify-self-center flex items-center justify-center rounded-full border-2 transition-all ${canMove ? 'hover:scale-105 hover:shadow-[0_0_15px_currentColor] cursor-pointer' : 'cursor-default'} bg-black/40 backdrop-blur-sm`}
                     style={{ borderColor: color, color: color, boxShadow: `0 0 10px ${color}33` }}
                     onClick={() => determineAndProcessClickCell(base + i)}
                   >
@@ -415,7 +402,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
                         G={pieceState.G?.get(base + i) ?? 0}
                         activeColor={turn}
                         COLORS={COLORS}
-                        moveAllowed={moveAllowed}
+                        moveAllowed={canMove} 
                       />
                     )}
                   </div>
@@ -447,9 +434,9 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
               key={ref}
               className={`absolute inset-0 ${align} transition-all duration-700`}
               style={{ 
-                  backgroundColor: color, clipPath: clip,
-                  opacity: turn === (ref === 72 ? 'R' : ref === 73 ? 'B' : ref === 74 ? 'Y' : 'G') ? 0.4 : 0.15,
-                  filter: turn === (ref === 72 ? 'R' : ref === 73 ? 'B' : ref === 74 ? 'Y' : 'G') ? `drop-shadow(0 0 15px ${color})` : 'none'
+                 backgroundColor: color, clipPath: clip,
+                 opacity: turn === (ref === 72 ? 'R' : ref === 73 ? 'B' : ref === 74 ? 'Y' : 'G') ? 0.4 : 0.15,
+                 filter: turn === (ref === 72 ? 'R' : ref === 73 ? 'B' : ref === 74 ? 'Y' : 'G') ? `drop-shadow(0 0 15px ${color})` : 'none'
               }}
             >
               <div className="w-full h-full bg-gradient-to-br from-white/30 via-transparent to-black/40" />

@@ -259,7 +259,7 @@ const ActionModal = ({ activeModal, setActiveModal, handleLogout }) => {
                 const { color, bg, border, Icon } = getNotificationStyle(notif.type);
                 return (
                   <div key={notif._id} onClick={() => handleNotificationClick(notif)} className={`p-4 rounded-xl flex gap-3 items-start cursor-pointer transition-all duration-300 ${notif.read ? 'bg-white/5 border border-white/5 opacity-50 hover:opacity-100' : `${bg} border ${border} shadow-[0_0_15px_rgba(0,0,0,0.2)] hover:brightness-125`}`}>
-                    <Icon size={16} className={`${color} shrink-0 mt-0.5`} />
+                    <Icon size={16} className={`${color} shrink-0 mt-0.5`}/>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-1">
                         <p className={`text-[10px] font-black uppercase tracking-widest truncate ${color}`}>{notif.title}</p>

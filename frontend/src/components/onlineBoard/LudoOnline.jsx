@@ -7,14 +7,15 @@ import GameBoard from './gameboard/GameBoard.jsx';
 import Dice from './gameboard/Dice';
 import PlayerBoard from './gameboard/PlayerBoard';
 import useGameStore from '@/store/useGameStore';
-import useUserStore from '@/store/userStore'; // ✅ Imported UserStore for Auth details
+import useUserStore from '@/store/userStore'; 
 import gameActions from '@/store/gameLogic';
 import { useShallow } from 'zustand/shallow';
 import ErrorBoundary from '../../ErrorBoundary';
 import GradientText from '@/components/customComponents/GradientText';
 import { toast } from 'react-toastify'; 
 
-const LudoSkeleton = () => (
+// ✅ Updated Skeleton to accept dynamic text for the waiting state
+const LudoSkeleton = ({ text = "Initializing_Grid..." }) => (
   <div className="flex flex-col items-center justify-center w-full h-full space-y-8 animate-pulse">
     {/* Top Player Bars */}
     <div className="flex justify-between w-full px-4">
@@ -34,7 +35,7 @@ const LudoSkeleton = () => (
       <div className="h-12 w-32 bg-white/5 rounded-xl border border-white/10" />
     </div>
     
-    <p className="text-[10px] font-mono text-indigo-400 tracking-[0.4em] uppercase">Initializing_Grid...</p>
+    <p className="text-[10px] font-mono text-indigo-400 tracking-[0.4em] uppercase">{text}</p>
   </div>
 );
 
@@ -42,8 +43,10 @@ const LudoOnline = memo(({ socket }) => {
   const navigate = useNavigate();
   const { gameId } = useParams(); 
   const [screen, setScreen] = useState(window.innerWidth <= window.innerHeight);
-  const [sound, allowSound] = useState(false);
   const [socketLoaded, setSocketLoaded] = useState(false);
+  
+  // ✅ Added myColor state to lock down interactions to the assigned player only
+  const [myColor, setMyColor] = useState(null); 
   
   const ref = useRef(null);
 
@@ -52,20 +55,18 @@ const LudoOnline = memo(({ socket }) => {
   // =========================================================================
   
   const syncTicksRef = useRef([0, 0]);
-  const myColorRef = useRef(null); // Track the assigned color for reconnections
+  const myColorRef = useRef(null); 
   
   const userInfo = useUserStore(state => state.info);
-  // Fallback to URL parsing if Zustand hasn't initialized the game type locally yet
   const gameType = useGameStore(state => state.meta.type) || (window.location.pathname.includes('poi') ? 'poi' : 'pof');
 
   useEffect(() => {
     if (!socket || !gameId) return;
 
-    // 1. Initial Join Request
     socket.emit("join-game", { 
       gameId, 
       type: gameType,
-      requestedColor: "R", // Backend handles fallback if R is taken
+      requestedColor: "R", 
       user: { 
         userId: userInfo?.username || "Guest", 
         name: userInfo?.fullname || "Unknown Pilot", 
@@ -82,10 +83,14 @@ const LudoOnline = memo(({ socket }) => {
         return true;
       }
 
+      // ✅ FIX: If the server echoes a tick we already have, ignore it peacefully!
+      if (incomingTick === curr) {
+        return true; 
+      }
+
       if (incomingTick !== curr + 1) {
         console.warn(`SYNC DESYNC: Expected tick ${curr + 1}, got ${incomingTick}. Requesting hard sync...`);
         toast.warning("Desync detected. Realigning grid...", { theme: "dark" });
-        // Emit sync-state with our known color so the backend can re-bind our socket
         socket.emit("sync-state", { gameId, color: myColorRef.current }); 
         return false;
       }
@@ -97,7 +102,8 @@ const LudoOnline = memo(({ socket }) => {
     // --- SOCKET EVENT LISTENERS ---
 
     const handleJoinSuccess = ({ assignedColor, newState }) => {
-      myColorRef.current = assignedColor; // Save our assigned color
+      myColorRef.current = assignedColor; 
+      setMyColor(assignedColor); // ✅ Save to state for passing down
       const serverTick = newState.syncTick || 1; 
       syncTicksRef.current = [serverTick - 1, serverTick]; 
       gameActions.syncGameState(newState);
@@ -122,6 +128,17 @@ const LudoOnline = memo(({ socket }) => {
       const serverTick = serverState.syncTick || 1; 
       syncTicksRef.current = [serverTick - 1, serverTick]; 
       gameActions.syncGameState(serverState);
+      
+      // ✅ Self-healing: Find our color again if we hard reconnected
+      if (!myColorRef.current && userInfo?.username) {
+        for (const c of ["R", "B", "Y", "G"]) {
+          if (serverState.players[c]?.userId === userInfo.username) {
+            myColorRef.current = c;
+            setMyColor(c);
+            break;
+          }
+        }
+      }
       setSocketLoaded(true); 
     };
 
@@ -138,12 +155,10 @@ const LudoOnline = memo(({ socket }) => {
     };
 
     const handlePlayerOfflineWarning = ({ message }) => {
-      // Pops a yellow warning immediately when a player drops
       toast.warning(message, { theme: "dark", autoClose: 9500, icon: "⏳" });
     };
 
     const handlePlayerReconnected = ({ message }) => {
-      // Pops a success toast if they rejoin within 10 seconds
       toast.success(message, { theme: "dark", icon: "🔌" });
     };
 
@@ -176,21 +191,7 @@ const LudoOnline = memo(({ socket }) => {
   const playersSet = useGameStore(state => state.meta?.onBoard);
   const curColor = useGameStore(state => state.players[state.move.turn]?.color || "#ffffff");
   const moveObj = useGameStore(useShallow(state => state.move));
-  const homeCount = useGameStore(state => state.players[state.move.turn]?.homeCount ?? 4);
-  const winPosn = useGameStore(state => state.players[state.move.turn]?.winPosn || 0);
   const rollAllowed = useGameStore(state => state.move.rollAllowed);
-  
-  const {pieceStateR, pieceStateB, pieceStateY, pieceStateG } = useGameStore(useShallow(state => ({
-      pieceStateR: state.players.R?.pieceRef, 
-      pieceStateB: state.players.B?.pieceRef,
-      pieceStateY: state.players.Y?.pieceRef,
-      pieceStateG: state.players.G?.pieceRef,
-  })));
-
-  const pieceState = useMemo(() => ({
-    R: pieceStateR, B: pieceStateB, Y: pieceStateY, G: pieceStateG,
-  }), [pieceStateR, pieceStateB, pieceStateY, pieceStateG]);
-
   const gameStatus = useGameStore(state => state.meta.status);
   const playersData = useGameStore(state => state.players);
 
@@ -205,9 +206,6 @@ const LudoOnline = memo(({ socket }) => {
     R: pieceIdxR, B: pieceIdxB, Y: pieceIdxY, G: pieceIdxG
   }), [pieceIdxR, pieceIdxB, pieceIdxY, pieceIdxG]);
 
-  const winLast = useGameStore(state => state.meta.winLast);
-  const timeOut = useGameStore((state) => state.move.timeOut);
-
   const { winR, winB, winY, winG } = useGameStore(useShallow(state => ({
     winR: state.players.R?.winPosn,
     winB: state.players.B?.winPosn,
@@ -220,6 +218,7 @@ const LudoOnline = memo(({ socket }) => {
   }), [winR, winB, winY, winG]);
 
   const isFinished = gameStatus === "FINISHED";
+  const isWaiting = gameStatus === "WAITING"; // ✅ Added to check for Waiting Lobby status
 
   // =========================================================================
   // ============================= UI BEHAVIORS ==============================
@@ -245,14 +244,15 @@ const LudoOnline = memo(({ socket }) => {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#020205] to-[#020205] z-0 pointer-events-none" />
       <div className="absolute inset-0 z-0 opacity-10" style={{backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '30px 30px'}}></div>
       
-      {!socketLoaded ? (
+      {/* ✅ Keep them in the skeleton until the game status officially moves to RUNNING */}
+      {(!socketLoaded || isWaiting) ? (
         <motion.div 
           initial={{ opacity: 0 }} 
           animate={{ opacity: 1 }} 
           exit={{ opacity: 0 }}
           className="relative z-50 w-full max-w-[500px]"
         >
-          <LudoSkeleton />
+          <LudoSkeleton text={!socketLoaded ? "Initializing_Grid..." : `Waiting_For_Pilots... [${playersSet?.size || 1}/4]`} />
         </motion.div>
       ) : (
         <motion.div
@@ -284,6 +284,7 @@ const LudoOnline = memo(({ socket }) => {
                   socket={socket} 
                   gameId={gameId} 
                   isOnline={true}
+                  myColor={myColor} // ✅ Passed down
                 />
               </div>
             </div>
@@ -306,6 +307,7 @@ const LudoOnline = memo(({ socket }) => {
                     moving={moveObj.moving}
                     pieceIdxArr={pieceIdx}
                     winState={winState}
+                    myColor={myColor} // ✅ Passed down
                   />
                 </ErrorBoundary>
               </div>
@@ -340,13 +342,11 @@ const LudoOnline = memo(({ socket }) => {
               animate={{ scale: 1, y: 0 }}
               className="bg-[#0a0a0f] border border-white/10 rounded-[2rem] p-8 w-full max-w-md shadow-[0_0_50px_rgba(0,255,60,0.1)] flex flex-col items-center relative overflow-hidden"
             >
-              {/* Decorative Header */}
               <GradientText colors={["#00ff3c", "#ffffff"]} className="text-3xl sm:text-4xl font-black tracking-tighter uppercase mb-2">
                 MISSION_COMPLETE
               </GradientText>
               <p className="text-[10px] text-gray-500 font-mono tracking-[0.3em] uppercase mb-8">Grid Protocol Terminated</p>
 
-              {/* Ranks List */}
               <div className="w-full space-y-3 mb-8">
                 {Array.from(playersSet || [])
                   .map(color => playersData[color])
@@ -355,8 +355,8 @@ const LudoOnline = memo(({ socket }) => {
                     if (b.winPosn === 0) return -1;
                     return a.winPosn - b.winPosn;
                   })
-                  .map((player, idx) => {
-                    if (!player) return null; // Safe check for purged players
+                  .map((player) => {
+                    if (!player) return null; 
                     
                     const trophyStyle = 
                       player.winPosn === 1 ? "text-[#FFD700] drop-shadow-[0_0_12px_rgba(255,215,0,0.8)]" :   
@@ -388,7 +388,6 @@ const LudoOnline = memo(({ socket }) => {
                   })}
               </div>
 
-              {/* Return Action */}
               <button 
                 onClick={handleReturnToDash}
                 className="w-full py-4 bg-[#00ff3c] text-black font-black uppercase text-[10px] tracking-[0.2em] rounded-xl hover:shadow-[0_0_25px_#00ff3c] active:scale-95 transition-all flex items-center justify-center gap-2"
