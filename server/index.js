@@ -53,7 +53,7 @@ const corsOptions = {
 // console.log(allowedOrigins);
 // ===== Middlewares =====
 app.use(cors({
-    origin: allowedOrigins,
+    origin: "*",
     credentials: true
 }));
 app.use(express.json());
