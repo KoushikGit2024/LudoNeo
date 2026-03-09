@@ -7,6 +7,7 @@ async function connectMongo() {
     try {
         await mongoose.connect(URL);
         // console.log("Connected to MongoDB ",(process.env.NODE_ENV === "production")?"in production":"in development");
+        console.log("Database Connection established");
     } catch (error) {
         console.log(error);
     }

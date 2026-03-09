@@ -519,24 +519,38 @@ const markNotificationRead = async (req, res, next) => {
 
 const sendInvites = async (req, res, next) => {
     try {
-        const { targets, title, message, type } = req.body;
-        
-        // targets is an array of usernames. 
-        // We push the notification object to all matching users simultaneously!
-        await User.updateMany(
-            { username: { $in: targets } },
-            { 
-                $push: { 
-                    notifications: { 
-                        title, 
-                        message, 
-                        type, 
-                        read: false, 
-                        createdAt: new Date() 
-                    } 
-                } 
-            }
-        );
+        const { targets, title, colors, message, type } = req.body;
+        console.log(targets,colors,message)
+        // 1. Create an array of individual update operations
+        const bulkOps = targets.map((target, idx) => {
+            // Generate the unique token for this specific user and color
+            const token = jwt.sign(`${target}=${colors[idx]}`, process.env.JWT_SECRET);
+            
+            // Append the token to the base message string
+            const customMessage = `${message}?idf=${token}`;
+
+            return {
+                updateOne: {
+                    filter: { username: target },
+                    update: { 
+                        $push: { 
+                            notifications: { 
+                                title, 
+                                message: customMessage, 
+                                type, 
+                                read: false, 
+                                createdAt: new Date() 
+                            } 
+                        } 
+                    }
+                }
+            };
+        });
+        console.log(bulkOps)
+        // 2. Execute all updates in a single round-trip to the database
+        if (bulkOps.length > 0) {
+            await User.bulkWrite(bulkOps);
+        }
 
         res.status(200).json({ success: true, message: "Invites delivered." });
     } catch (error) {

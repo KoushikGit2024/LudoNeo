@@ -384,10 +384,16 @@ export default function registerGameHandlers(io) {
     });
 
     // --- 5. DELAYED DISCONNECT LOGIC ---
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
+      console.log(`[NETWORK] 🔴 Socket Disconnected: ${socket.id} | Reason: ${reason}`);
+
       const { gameId, playerColor } = socket;
       
-      if (!gameId || !playerColor) return; 
+      // 2. If they were just in the lobby and hadn't fully joined a room, stop here.
+      if (!gameId || !playerColor) {
+         console.log(`[DISCONNECT] Socket ${socket.id} disconnected before joining a game.`);
+         return; 
+      }
 
       io.to(gameId).emit("player-offline-warning", {
          message: `WARNING: Node ${playerColor} signal lost. Commencing 10s purge protocol...`,
