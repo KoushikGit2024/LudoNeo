@@ -25,6 +25,8 @@ const getCookieOptions = () => ({
 
 const generateToken = () => crypto.randomBytes(32).toString("hex");
 
+const isProduction = process.env.NODE_ENV === "production";
+
 // ==========================================
 // LOGIN LOGIC
 // ==========================================
@@ -35,11 +37,54 @@ const loginHandler = async (req, res, next) => {
         const user = await User.findOne({ $or: [{ email }, { username: email }] }).select("+password");
         if (!user) return res.status(401).json({ success: false, message: "Invalid credentials" });
 
-        if (!user.isVerified) {
-            return res.status(403).json({ 
-                success: false, 
-                message: "Please verify your email before logging in." 
+        if (!user?.isVerified) {
+            const verificationToken = generateToken();
+            await redis.set(`verify:${verificationToken}`, user.email, { EX: 3600 });
+            const verificationUrl = isProduction ? `https://ludoneo.onrender.com/options/signin?token=${verificationToken}` : `http://localhost:5173/options/signin?token=${verificationToken}`;
+            // console.log(sendEmail)
+            await sendEmail({
+                email: user.email,
+                subject: `SYSTEM: Identity Uplink Required for Pilot ${user.fullname}`,
+                message: `
+                    <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
+                        <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
+                            <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
+                                [ UPLINK_PROTOCOL: v3.0 ]
+                            </h2>
+                            <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
+                        </div>
+                        <div style="line-height: 1.6;">
+                            <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
+                                Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname || user.fullname}</span>
+                            </h1>
+                            <p style="font-size: 14px; color: #a0a0a0;">
+                                Your neural signature has been detected. To finalize your integration into the 
+                                <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
+                                pilot identity through our secure verification node.
+                            </p>
+                            <div style="text-align: center; margin: 40px 0;">
+                                <a href="${verificationUrl}" 
+                                style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
+                                INITIALIZE_NEURAL_LINK
+                                </a>
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
+                                <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
+                                If this uplink was not requested by you, please terminate the connection and ignore this data packet.
+                            </div>
+                        </div>
+                        <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+                            &copy; 2026 Ludo Neo Grid Operations // Sector 7
+                        </div>
+                    </div>
+                `,
             });
+            return res.json({success: false, message: "Email not verified. Link sent to registered email."});
+        
+            // return res.status(403).json({ 
+            //     success: false, 
+            //     message: "Please verify your email before logging in." 
+            // });
         }
 
         const isMatch = await user.comparePassword(password);
@@ -74,6 +119,7 @@ const logoutHandler = async (req, res) => {
 // ==========================================
 // UPDATE PROFILE LOGIC
 // ==========================================
+
 const updateProfile = async (req, res, next) => {
     try {
         const userId = req.user.id; 
@@ -87,8 +133,8 @@ const updateProfile = async (req, res, next) => {
         if(!user?.isVerified) {
             const verificationToken = generateToken();
             await redis.set(`verify:${verificationToken}`, user.email, { EX: 3600 });
-            const verificationUrl = `http://localhost:5173/options/signin?token=${verificationToken}`;
-
+            const verificationUrl = isProduction ? `https://ludoneo.onrender.com/options/signin?token=${verificationToken}` : `http://localhost:5173/options/signin?token=${verificationToken}`;
+            console.log(sendEmail)
             await sendEmail({
                 email: user.email,
                 subject: `SYSTEM: Identity Uplink Required for Pilot ${user.fullname}`,
@@ -295,7 +341,7 @@ const registerHandler = async (req, res, next) => {
 
         const verificationToken = generateToken();
         await redis.set(`verify:${verificationToken}`, email, { EX: 3600 });
-        const verificationUrl = `http://localhost:5173/options/signin?token=${verificationToken}`;
+        const verificationUrl =isProduction ? `https://ludoneo.onrender.com/options/signin?token=${verificationToken}` : `http://localhost:5173/options/signin?token=${verificationToken}`;
 
         await sendEmail({
             email,
@@ -374,7 +420,7 @@ const forgotPassword = async (req, res, next) => {
 
         const resetToken = generateToken();
         await redis.set(`reset:${resetToken}`, email, { EX: 3600 });
-        const resetUrl = `http://localhost:5173/options/signin?reset=${resetToken}&id=${user.email}&mode=reset`;
+        const resetUrl = isProduction ? `https://ludoneo.onrender.com/options/signin?reset=${resetToken}&id=${user.email}&mode=reset` : `http://localhost:5173/options/signin?reset=${resetToken}&id=${user.email}&mode=reset`;
 
         await sendEmail({
             email,
@@ -519,16 +565,16 @@ const markNotificationRead = async (req, res, next) => {
 
 const sendInvites = async (req, res, next) => {
     try {
-        const { targets, title, colors, message, type } = req.body;
+        const { targets, title, colors, message, type,gameId } = req.body;
         console.log(targets,colors,message)
         // 1. Create an array of individual update operations
         const bulkOps = targets.map((target, idx) => {
             // Generate the unique token for this specific user and color
-            const token = jwt.sign(`${target}=${colors[idx]}`, process.env.JWT_SECRET);
+            const token = jwt.sign({color:colors[idx],target,gameId:gameId}, process.env.JWT_SECRET);
             
             // Append the token to the base message string
             const customMessage = `${message}?idf=${token}`;
-
+            // console.log(targets,colors)
             return {
                 updateOne: {
                     filter: { username: target },
@@ -546,7 +592,7 @@ const sendInvites = async (req, res, next) => {
                 }
             };
         });
-        console.log(bulkOps)
+        // console.log(bulkOps)
         // 2. Execute all updates in a single round-trip to the database
         if (bulkOps.length > 0) {
             await User.bulkWrite(bulkOps);

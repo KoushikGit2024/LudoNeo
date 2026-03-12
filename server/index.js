@@ -60,7 +60,7 @@ app.use(cookieParser());
 connectMongo();
 
 // ===== Socket.io Setup =====
-const io = new Server(server, corsOptions);
+const io = new Server(server, {cors:corsOptions});
 
 // Socket Middleware: Verify User via JWT Cookie
 // io.use((socket, next) => {
@@ -78,8 +78,52 @@ const io = new Server(server, corsOptions);
 // });
 
 // Initialize External Socket Logic for the Ludo Game
-registerGameHandlers(io);
 
+
+io.use((socket, next) => {
+  try {
+
+    // Extract cookie string
+    const cookie = socket.request.headers.cookie;
+
+    const token = cookie
+      ? cookie
+          .split("; ")
+          .find(row => row.startsWith("token="))
+          ?.split("=")[1]
+      : null;
+
+    const playerDescription = socket.handshake.auth?.playerDescription || null;
+    const gameId = socket.handshake.auth?.gameId || null;
+
+    if (!token || !playerDescription || !gameId) {
+      return next(new Error("Authentication failed"));
+    }
+
+    const decodedUser = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = decodedUser;
+
+    // Verify playerDescription token
+    const decodedPlayer = jwt.verify(playerDescription, process.env.JWT_SECRET);
+    socket.player = decodedPlayer;
+    console.log(socket.player,gameId,decodedUser)
+
+    if (socket.player.gameId !== gameId) {
+        console.log("Connection revoked");
+      return next(new Error("Connection revoked"));
+    }
+
+    console.log("Player verified:", socket.player);
+
+    next();
+
+  } catch (err) {
+    console.error("Socket auth error:", err.message);
+    next(new Error("Authentication error"));
+  }
+});
+
+registerGameHandlers(io);
 // ===== HTTP Routes =====
 
 // Root Route
