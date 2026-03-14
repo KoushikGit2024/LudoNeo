@@ -11,12 +11,18 @@ const socketGuard = async (socket, next, io) => {
           .find(row => row.startsWith("token="))
           ?.split("=")[1]
       : null;
-
+      
+    const gameType = socket.handshake.auth?.gameType || null;
     const playerDescription = socket.handshake.auth?.playerDescription || null;
     const gameId = socket.handshake.auth?.gameId || null;
 
-    if (!token || !playerDescription || !gameId) {
+    // 🛡️ gameId can be null for new POI matches, so we don't strictly require it here
+    if (!token || !playerDescription && gameType !== "poi" || !gameType) {
       return next(new Error("Authentication failed: Missing credentials"));
+    }
+
+    if (gameType === "pof" && !gameId) {
+        return next(new Error("Authentication failed: POF requires a gameId"));
     }
 
     // 2. Verify Tokens
@@ -26,42 +32,71 @@ const socketGuard = async (socket, next, io) => {
     const decodedPlayer = jwt.verify(playerDescription, process.env.JWT_SECRET);
     socket.player = decodedPlayer;
 
-    if (socket.player.gameId !== gameId) {
-      console.log(`[AUTH] Connection revoked: Game ID mismatch for ${socket.user.name}`);
+    if (gameId && socket.player.gameId && socket.player.gameId !== gameId) {
+      console.log(`[AUTH] Connection revoked: Game ID mismatch for ${socket.player.username}`);
       return next(new Error("Connection revoked"));
     }
 
-    // 3. Redis & Room Validation
-    const playerPresentId = (await redis.json.get(`game:${gameId}`, {
-        path: `$.players.${socket.player.color}.socketId`
-    }))?.[0];
+    // ==========================================
+    // 3. GLOBAL DUPLICATE TAB CHECK (Handles POI & POF)
+    // ==========================================
+    const allSockets = await io.fetchSockets();
+    const isUserAlreadyConnected = allSockets.some(
+        (s) => { return s.player?.username === socket.player.username && s.id !== socket.id}
+    );
+    // console.log(isUserAlreadyConnected)
+    if (isUserAlreadyConnected) {
+        console.log(`[AUTH] 🛑 Rejected: ${socket.player.username} is already connected in another tab.`);
+        return next(new Error("Player is already connected across the server"));
+    }
 
-    const currentSocketsInRoom = await io.in(gameId).fetchSockets();
-    const playerCount = currentSocketsInRoom.length;
+    // ==========================================
+    // 4. ROOM-SPECIFIC CHECKS (If gameId exists)
+    // ==========================================
+    if (gameId) {
+        // Fetch all 4 player objects in the room at once
+        const playerStateList = await redis.json.get(`game:${gameId}`, {
+            path: `$.players.*`
+        });
 
-    // ✅ THE FIX: Only block if the player's old socket is STILL actively connected (e.g., trying to play in two tabs)
-    if (playerPresentId && playerPresentId !== socket.id) {
-        const isOldSocketStillActive = currentSocketsInRoom.some(s => s.id === playerPresentId);
-        
-        if (isOldSocketStillActive) {
-            console.log(`[AUTH] 🛑 Rejected: ${socket.user.name} is already playing in another tab.`);
-            return next(new Error("Player is already connected"));
+        if (playerStateList) {
+            const currentSocketsInRoom = await io.in(gameId).fetchSockets();
+            const playerCount = currentSocketsInRoom.length;
+
+            // Match by username to see if they are in this room state
+            const existingPlayerRecord = playerStateList.find(p => p.username === socket.player.username);
+            // console.log(existingPlayerRecord)
+            if (existingPlayerRecord && existingPlayerRecord.socketId) {
+                const isOldSocketStillActive = currentSocketsInRoom.some(s => s.id === existingPlayerRecord.socketId);
+                if (isOldSocketStillActive) {
+                    console.log(`[AUTH] 🛑 Rejected: ${socket.player.username} is already active in game ${gameId}.`);
+                    return next(new Error("Player is already active in this game"));
+                }
+            }
+
+            // Reject if full, unless they are an existing player reconnecting
+            // console.log(existingPlayerRecord,playerCount,socket.player.size,gameType)
+            if (!existingPlayerRecord && playerCount >= socket.player.size && gameType === "pof") {
+                console.log(`[AUTH] 🛑 Rejected: Game ${gameId} is full.`);
+                return next(new Error("Game is full"));
+            }
         }
-        // If it's NOT active, they are just reconnecting from a drop. Let them pass!
+
+        console.log(`[AUTH] ✅ Verified Node ${socket.player.color || 'Pending'} for user ${socket.player.username}`);
+        
+        // Auto-join socket room only for POF. POI matchmaking handles room assignment later.
+        if (gameType === "pof") {
+            socket.join(gameId);
+        }
+    } else {
+        console.log(`[AUTH] ✅ Verified user ${socket.player.username} for POI Matchmaking`);
     }
 
-    if (playerCount >= socket.player.size) {
-        console.log(`[AUTH] 🛑 Rejected: Game ${gameId} is full.`);
-        return next(new Error("Game is full"));
-    }
-
-    console.log(`[AUTH] ✅ Verified Node ${socket.player.color} for user ${socket.user.name}`);
-    next();
-
+    return next();
   } catch (err) {
     console.error("❌ [AUTH] Socket error:", err.message);
     next(new Error("Authentication error"));
   }
-}
+};
 
 export default socketGuard;

@@ -6,12 +6,13 @@ import {
   ChevronRight, ArrowLeft, Terminal, Globe, Users, Cpu
 } from 'lucide-react';
 import GradientText from '@/components/customComponents/GradientText';
-import gameActions from '@/store/gameLogic';
 import api from '@/api/axiosConfig';
-import { toast } from 'react-toastify'; // Added toast for error handling
+import { toast } from 'react-toastify';
 import "@/styles/options.css";
+
 import useUserStore from '@/store/userStore';
 import useGameStore from '@/store/useGameStore';
+import gameActions from '@/store/gameLogic';
 
 const GameSetup = () => {
   const { boardType } = useParams();
@@ -57,8 +58,9 @@ const GameSetup = () => {
   const [loadingStates, setLoadingStates] = useState({});
   const [searchResults, setSearchResults] = useState({ R: [], B: [], Y: [], G: [] });
   const [activeSearch, setActiveSearch] = useState(null);
-  const [botDifficulty, setBotDifficulty] = useState({ R:'Normal', B:'Normal', Y:'Normal', G:'Normal' });
-  const [isStarting, setIsStarting] = useState(false); // NEW: Track initialization state
+  
+  const [botDifficulty, setBotDifficulty] = useState({ R:'medium', B:'medium', Y:'medium', G:'medium' });
+  const [isStarting, setIsStarting] = useState(false); 
   const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -71,29 +73,21 @@ const GameSetup = () => {
       setHumanColor(null); 
     }
   }, [isPOI, isBot, isPOF, isOffline, selectedColors.length]);
-  useEffect(()=>{
-    console.log(players)
-  },[players])
 
   const handleClaimNode = (colorId) => {
     const prevColor = humanColor;
-
-    // If it's the same color or no color was previously selected, just update the color
     if (!prevColor || prevColor === colorId) {
       setHumanColor(colorId);
       return;
     }
-
-    // Swap the player data between the old node and the newly claimed node
     setPlayers((prev) => ({
       ...prev,
-      [prevColor]: prev[colorId], // Move the target node's data to your old node
-      [colorId]: prev[prevColor]  // Move your data to the new node
+      [prevColor]: prev[colorId], 
+      [colorId]: prev[prevColor]  
     }));
-
-    // Update the claimed color state
     setHumanColor(colorId);
   };
+
   useEffect(() => {
     setPlayers(prev => {
       let changed = false;
@@ -174,19 +168,15 @@ const GameSetup = () => {
     setActiveSearch(null); 
   };
 
-  // ✅ UPDATED: Dynamic Routing & Notification Dispatcher
   const handleStart = async () => {
     setIsStarting(true);
 
     try {
-      // --- 1. POI MATCHMAKING ---
       if (isPOI) {
-        // Skip local game creation completely. The server will pair them.
         navigate(`/session/poi`);
         return;
       }
 
-      // --- 2. GAME OBJ GENERATION (POF, BOT, OFFLINE) ---
       const gameObj = {
         type: boardType,
         players: selectedColors,
@@ -197,37 +187,44 @@ const GameSetup = () => {
         }, {})
       };
       
-      // Initialize local game to generate the unique gameId
-      gameActions.initiateGame(gameObj);
-      const gameId = useGameStore.getState().meta.gameId;
+      function shortId(length = 6) {
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".toLowerCase();
+        const bytes = new Uint8Array(length);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+      }
 
-      // --- 3. POF INVITE SYSTEM ---
       if (isPOF) {
-        // Extract the usernames of the friends invited (excluding the host)
-        const invitedUsers = selectedColors.map(c => players[c].username);
-        console.log(invitedUsers)
+        const gameId = shortId(16);
+        const invitedUsers = selectedColors.map(c => [players[c].username,players[c].profile]);
         if (invitedUsers.length > 0) {
-          // Broadcast notifications to their in-game comms
           const inviteList = [...invitedUsers];
           await api.post('/api/auth/send-invites', {
             targets: inviteList,
             colors:selectedColors,
             title: "ELITE_LINK INVITE",
             message: `Pilot ${myName} requested backup. Access node here: /session/pof/${gameId}`,
-            type: "info", // 'info' maps to blue style in Dashboard,
-            gameId
+            type: "info", 
+            gameId,
+            boardType,
           });
           toast.success("Uplink invites broadcasted successfully.", { theme: "dark" });
         }
         
-        // Navigate host to the generated room
-        // navigate(`/session/pof/${gameId}`);
+        // POF handles setup server-side or via sockets, standard navigation
+        // navigate(`/session/${boardType}/${gameId}`, { state: { gameConfig: gameObj } });
         return;
       }
 
-      // --- 4. OFFLINE / BOT ROUTING ---
-      // For local modes, we can safely navigate to a general offline path, or include the ID
-      navigate(`/session/${boardType}/${gameId}`);
+      // ✅ LOCAL AND BOT MODE: Setup state synchronously before navigating
+      gameActions.resetStore();
+      gameActions.initiateGame(gameObj);
+      
+      // Pull the freshly generated gameId directly from the store
+      const newGameId = useGameStore.getState().meta.gameId;
+      
+      // Navigate cleanly without router state bloat
+      navigate(`/session/${boardType}/${newGameId}`);
 
     } catch (error) {
       console.error(error);

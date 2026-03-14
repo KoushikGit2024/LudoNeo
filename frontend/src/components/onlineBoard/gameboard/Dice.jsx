@@ -4,97 +4,110 @@ import '../../../styles/dice.css';
 import DiceRoll from "../../../assets/DiceRoll.mp3";
 import { Sparkles, Lock } from "lucide-react"; 
 import { AudioContext } from "@/contexts/SoundContext";
+import onlineGameActions from '@/store/onlineGameLogic'; 
+import gameActions from '@/store/gameLogic'; 
+import useGameStore from '@/store/useGameStore'; // Added to check global state for fallback
 
-// ✅ Added myColor prop for frontend validation
 const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myColor }) => {
   const { sound } = useContext(AudioContext);
   const [rolling, setRolling] = useState(false);
   const [value, setValue] = useState(1);
   const audioRef = useRef(null);
+  
+  // Track if we are currently awaiting a server response to prevent double emits
+  const isAwaitingServerRef = useRef(false);
 
-  // ✅ Security Check: Is it actually this client's turn?
   const isMyTurn = !isOnline || (myColor === turn);
   const canRoll = rollAllowed && !gameFinished && isMyTurn;
 
-  // --- AUDIO LOGIC ---
   const playSound = () => {
     if (!audioRef.current || !sound) return;
     audioRef.current.currentTime = 0;
     audioRef.current.play();
   };
 
-  // --- USER ACTION ---
   const handleUserClick = () => {
-    // ✅ Prevent clicking if not allowed, not your turn, already rolling, or game over
-    if (rolling || !canRoll) return;
+    if (rolling || isAwaitingServerRef.current || !canRoll) return;
     
-    // Online Flow
+    // 1. Instantly lock the UI (Optimistic Update)
+    setRolling(true);
+    isAwaitingServerRef.current = true;
+    playSound();
+    
+    // Start visual fake roll immediately for instant feedback
+    const fakeRollInterval = setInterval(() => setValue(Math.floor(Math.random() * 6) + 1), 100);
+
     if (isOnline && socket) {
        socket.emit("roll-dice", { gameId, color: turn });
-    } 
-    // Offline Flow 
-    else if (!isOnline) {
-       setRolling(true);
-       playSound();
-       const interval = setInterval(() => {
-         setValue(Math.floor(Math.random() * 6) + 1);
-       }, 100);
-
+       
+       // Safety Fallback: If server drops the packet, unlock after 2 seconds
        setTimeout(() => {
-         clearInterval(interval);
+          if (isAwaitingServerRef.current) {
+             console.warn("[NETWORK] Dice roll timed out. Unlocking.");
+             clearInterval(fakeRollInterval);
+             isAwaitingServerRef.current = false;
+             setRolling(false);
+          }
+       }, 2000);
+
+    } else if (!isOnline) {
+       setTimeout(() => {
+         clearInterval(fakeRollInterval);
          const finalValue = Math.floor(Math.random() * 6) + 1;
          setValue(finalValue);
          setRolling(false);
+         isAwaitingServerRef.current = false;
+         gameActions.updateMoveCount(finalValue); 
        }, 500);
     }
+
+    // Attach interval to ref so we can clear it when the server responds
+    audioRef.current.fakeRollInterval = fakeRollInterval;
   };
   
-  // --- SERVER RESPONSE LISTENER (ONLINE ONLY) ---
   useEffect(() => {
     if (!isOnline || !socket) return;
 
-    const handleDiceRolled = ({ value: finalValue }) => {
-      setRolling(true);
-      playSound();
+    const handleDiceRolled = ({ value: finalValue, moveUpdates, syncArray }) => {
+      // Clear the optimistic fake roll
+      if (audioRef.current?.fakeRollInterval) {
+        clearInterval(audioRef.current.fakeRollInterval);
+      }
 
-      const interval = setInterval(() => {
+      // Ensure sound plays if it was triggered by another player
+      if (!isAwaitingServerRef.current) {
+        setRolling(true);
+        playSound();
+      }
+
+      // Brief visual flutter to transition to final value
+      const resolveInterval = setInterval(() => {
         setValue(Math.floor(Math.random() * 6) + 1);
-      }, 100);
+      }, 50);
 
       setTimeout(() => {
-        clearInterval(interval);
+        clearInterval(resolveInterval);
         setValue(finalValue); 
         setRolling(false);
-      }, 500); 
+        isAwaitingServerRef.current = false;
+        
+        onlineGameActions.patchDeltaState({ move: moveUpdates }, syncArray[1]);
+      }, 300); 
     };
 
     socket.on("dice-rolled", handleDiceRolled);
-
-    return () => {
-      socket.off("dice-rolled", handleDiceRolled);
-    };
+    return () => socket.off("dice-rolled", handleDiceRolled);
   }, [socket, isOnline]);
 
-  // --- VISUAL & THEME CONSTANTS ---
-  const DICE_COLORS = useMemo(() => ({
-    R: "#ff0505", 
-    B: "#2b01ff", 
-    Y: "#fff200", 
-    G: "#00ff3c"  
-  }), []);
-
+  const DICE_COLORS = useMemo(() => ({ R: "#ff0505", B: "#2b01ff", Y: "#fff200", G: "#00ff3c" }), []);
   const activeColor = DICE_COLORS[turn] || "#ffffff";
 
   return (
     <div
       className="dice-cover relative w-full h-full flex items-center justify-center p-[10%]"
       onClick={handleUserClick}
-      style={{
-        // ✅ Only show pointer cursor if it's ACTUALLY your turn
-        cursor: canRoll ? 'pointer' : 'not-allowed',
-      }}
+      style={{ cursor: canRoll ? 'pointer' : 'not-allowed' }}
     >
-      {/* 1. Ambient Glow Ring (Pulses when active AND it's your turn) */}
       <div 
         className={`absolute inset-0 rounded-full transition-all duration-500 blur-xl opacity-20`}
         style={{
@@ -103,14 +116,11 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myCol
         }}
       />
 
-      {/* 2. Status Icons */}
       <div className="absolute -top-1 right-0 z-20">
          {(!rollAllowed || gameFinished) && <Lock size={12} className="text-gray-500 opacity-50" />}
-         {/* ✅ Only show the sparkle if it's YOUR turn to roll */}
          {(canRoll && !rolling) && <Sparkles size={12} className="animate-ping" style={{color: activeColor}} />}
       </div>
 
-      {/* 3. The Dice Cube Container */}
       <div
         className={`dice-container relative z-10 w-full aspect-square rounded-xl flex items-center justify-center transition-all duration-300
           ${rolling ? "rolling" : ""} 
@@ -118,9 +128,7 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myCol
         `}
         style={{
           backgroundColor: '#e6e6e6', 
-          boxShadow: rollAllowed 
-            ? `0 0 20px ${activeColor}, inset 0 0 10px white` 
-            : 'inset 0 0 10px black',
+          boxShadow: rollAllowed ? `0 0 20px ${activeColor}, inset 0 0 10px white` : 'inset 0 0 10px black',
           border: `2px solid ${rollAllowed ? 'white' : '#333'}`,
         }}
       >

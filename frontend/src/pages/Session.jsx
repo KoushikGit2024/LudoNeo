@@ -15,7 +15,6 @@ import useUserStore from '@/store/userStore';
 import useGameStore from '@/store/useGameStore';
 import socket from '@/api/socket'; 
 import gameActions from '@/store/gameLogic';
-import api from '@/api/axiosConfig'; 
 import { AudioContext } from '@/contexts/SoundContext';
 
 import LudoSkeleton from '@/components/sharedBoardComponents/LudoSkeleton';
@@ -28,27 +27,26 @@ const generateDefaultTitle = () => {
 
 const Session = () => {
   const { boardType, gameId } = useParams();
-  const [searchParams] = useSearchParams()
+  const [searchParams] = useSearchParams();
   
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
+  const [socketLoaded, setSocketLoaded] = useState(false);
 
   const { sound, toggleSound, music, toggleMusic } = useContext(AudioContext);
   const userInfo = useUserStore(useShallow((state) => state.info));
   
-  const fullGameState = useGameStore(state => state);
-  const gameStatus = fullGameState.meta.status; 
+  // ✅ HUGE PERFORMANCE FIX: Subscribe ONLY to the status string.
+  const gameStatus = useGameStore(state => state.meta.status); 
   
   const isOnlineMode = boardType === 'poi' || boardType === 'pof' || boardType === 'online';
   const canSave = boardType === 'offline' || boardType === 'bot';
 
-  // --- 1. NAVIGATION BLOCKER ---
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) => {
-      // Proceed is gone, so if they are here and the game isn't finished, block them
       const isLeaving = gameStatus !== "FINISHED" && currentLocation.pathname !== nextLocation.pathname;
       
       if (isLeaving && canSave && !saveTitle) {
@@ -59,7 +57,6 @@ const Session = () => {
     }
   );
 
-  // --- 2. SAVE LOGIC ---
   const handleSaveAndExit = async () => {
     if (!canSave) {
       blocker.proceed?.();
@@ -68,8 +65,7 @@ const Session = () => {
     setIsSaving(true);
     try {
       const finalTitle = saveTitle.trim() || generateDefaultTitle();
-      await gameActions.saveGameToDB(finalTitle)
-      // toast.success("Game Synced to Memory Core", { theme: "dark" });
+      await gameActions.saveGameToDB(finalTitle);
       blocker.proceed?.();
     } catch (err) {
       console.error(err);
@@ -79,7 +75,6 @@ const Session = () => {
     }
   };
   
-  
   useEffect(() => {
     return () => {
       socket.disconnect();
@@ -87,7 +82,6 @@ const Session = () => {
     };
   }, []);
 
-  // --- 3B. BROWSER REFRESH BLOCKER & SOCKET CONNECTOR ---
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (gameStatus !== "FINISHED") {
@@ -98,15 +92,15 @@ const Session = () => {
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     if (isOnlineMode && userInfo && !userInfo?.email) {
-      console.log(userInfo)
       toast.info("Neural link requires Pilot Registration.", { theme: "dark" });
       navigate("/dashboard"); 
     } else if (isOnlineMode) {
       socket.auth = {
         playerDescription: searchParams.get("idf"),
-        gameId: gameId,
+        gameId: gameId || null, 
+        gameType: boardType,
       };
-
+      setSocketLoaded(false);
       socket.connect();
     }
 
@@ -125,10 +119,7 @@ const Session = () => {
 
   const redirectedRef = useRef(false);
 
-  // --- 4. OPTIMIZED SOCKET EVENT HANDLERS ---
-  // --- 4. OPTIMIZED SOCKET EVENT HANDLERS ---
   useEffect(() => {
-    // Only run this in online modes
     if (!isOnlineMode) return;
 
     const handleError = (err) => {
@@ -146,36 +137,29 @@ const Session = () => {
     };
 
     const handleConnect = () => {
-      console.log("🟢 1. Socket connected:", socket.id);
-      
+      console.log("🟢 Socket connected:", socket.id);
+      setSocketLoaded(true);
       setTimeout(() => {
         try {
-          // console.log("🟢 2. Firing emit now! Payload:", { type: boardType });
           socket.emit("join-game", { type: boardType });
-          // console.log("🟢 3. Emit successfully pushed to network!");
         } catch (error) {
           console.error("🔴 Emit crashed locally:", error);
         }
-      }, 100); // Wait 1s to bypass React Strict Mode double-mounts
+      }, 100);
     };
 
-    // 1. Attach listeners UNCONDITIONALLY
     socket.on("connect", handleConnect);
     socket.on("connect_error", handleError);
 
-    // 2. Immediate check in case socket connected before the effect ran
     if (socket.connected) {
       handleConnect();
     }
 
-    // 3. Clean up
     return () => {
-      console.log("🧹 Cleaning up socket listeners...");
       socket.off("connect", handleConnect);
       socket.off("connect_error", handleError);
     };
 
-    // Put the variables you actually use inside the array
   }, [isOnlineMode, boardType]);
 
   return (
@@ -345,8 +329,8 @@ const Session = () => {
       </AnimatePresence>
 
       <div className="w-full h-full flex items-center justify-center">
-        <Suspense fallback={<LudoSkeleton/>}>
-          {isOnlineMode ? <LudoOnline socket={socket} /> : <LudoOffline />}
+        <Suspense fallback={<LudoSkeleton text={"Hi"}/>}>
+          {isOnlineMode ? <LudoOnline socket={socket} socketLoaded={socketLoaded} setSocketLoaded={setSocketLoaded} boardType={boardType}/> : <LudoOffline />}
         </Suspense>
       </div>
     </div>

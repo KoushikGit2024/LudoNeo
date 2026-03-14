@@ -1,6 +1,6 @@
 import { Zap } from "lucide-react";
 
-const LudoSkeleton = ({ text = "Initializing_Grid..." , isOnline=false,isSocketConnected=false,joinNo=0}) => (
+const LudoSkeleton = ({ text = "Initializing_Grid..." ,}) => (
   <div className="flex flex-col items-center justify-center w-full h-full space-y-8 animate-pulse">
     {/* Top Player Bars */}
     <div className="flex justify-between w-full px-4">
@@ -21,7 +21,6 @@ const LudoSkeleton = ({ text = "Initializing_Grid..." , isOnline=false,isSocketC
     </div>
     
     <p className="text-[10px] font-mono text-indigo-400 tracking-[0.4em] uppercase">{text}</p>
-    {isOnline && !isSocketConnected && <p className="text-[10px] font-mono text-indigo-400 tracking-[0.4em] uppercase">Waiting for opponent {joinNo}</p>}
   </div>
 );
 

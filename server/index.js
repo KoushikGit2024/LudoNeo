@@ -12,7 +12,7 @@ import User from "./src/models/userModel.js";
 import ErrorLog from "./src/models/errorModel.js";
 
 // Socket and Game Logic Imports
-import registerGameHandlers from "./src/sockets/gameControllers.js";
+import registerGameHandlers from "./src/sockets/gameEvents.js";
 import socketGaurd from "./src/middlewares/socketGaurd.js";
 import redis from "./src/config/redis.js"; 
 import gameRoute from "./src/routes/gameRoutes.js";

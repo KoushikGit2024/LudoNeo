@@ -12,12 +12,8 @@ import { useShallow } from "zustand/shallow";
 import piecePath from "@/contexts/PiecePath.js";
 import { AudioContext } from "@/contexts/SoundContext";
 
-// ✅ Added myColor prop
 const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, pieceIdxArr, winState, myColor }) => {
   
-  // =========================================================================
-  // ========================== UTILITY LAYER ================================
-  // =========================================================================
   const { sound } = useContext(AudioContext);
   
   const findIdxByref = (color, ref) => {
@@ -55,9 +51,17 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     }))
   );
 
-  // ✅ Security Check: Determine if the current client is allowed to interact with the board
+  // ⏱️ Get the server timestamp to track forced turn skips
+  const turnStartedAt = useGameStore(state => state.move.turnStartedAt);
+
   const isMyTurn = !isOnline || (myColor === turn);
   const canMove = moveAllowed && isMyTurn && !moving;
+
+  // 🛡️ CRITICAL FIX: If the server auto-skips a turn while the user's board is locally locked 
+  // (e.g. clicking right at 29.9s), this forces the board to unlock for the next player.
+  useEffect(() => {
+    inputLockedRef.current = false;
+  }, [turn, turnStartedAt]);
 
   const COLORS = useMemo(() => ({
     R: clrR, B: clrB, Y: clrY, G: clrG
@@ -93,9 +97,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
   ]), [COLORS]);
 
   const SAFE_CELLS = new Set([1, 9, 14, 22, 27, 35, 40, 48, 52]);
-  const homePointer = new Map([
-    [12, 0], [25, 90], [38, 180], [51, 270]
-  ]);
+  const homePointer = new Map([[12, 0], [25, 90], [38, 180], [51, 270]]);
 
   const playSound = (playCase = -1) => {
     if (playCase === -1 || !sound) return;
@@ -130,10 +132,6 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     window.addEventListener('resize', resizeHandler);
     return () => window.removeEventListener('resize', resizeHandler);
   }, []);
-
-  // =========================================================================
-  // ====================== ANIMATION & NETWORK LAYER ========================
-  // =========================================================================
 
   const oneStepAnimation = (from, to) => {
     return new Promise(resolve => {
@@ -194,9 +192,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
     setShowChariotDisplay(false);
   };
 
-  // 1. EMIT INTENT TO SERVER
   const determineAndProcessClickCell = (refNum) => {
-    // ✅ Apply the strict frontend check (canMove incorporates isMyTurn)
     if (!isOnline || !socket || !canMove || inputLockedRef.current) return;
     
     const pieceCount = pieceState[turn].get(refNum) ?? 0;
@@ -207,16 +203,23 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
 
     inputLockedRef.current = true;
     socket.emit("move-piece", { gameId, color: turn, pieceIdx: idx, refNum });
+
+    // 🛡️ Safety Fallback: Unlock if the server doesn't respond
+    setTimeout(() => {
+      if (inputLockedRef.current && !useGameStore.getState().move.moving) {
+        console.warn("[NETWORK] Move dropped or rejected. Releasing lock.");
+        inputLockedRef.current = false;
+      }
+    }, 2000); 
   };
 
-  // 2. LISTEN FOR SERVER COMMANDS
   const syncArrRef = useRef([0, 0]);
 
   useEffect(() => {
     if (!isOnline || !socket) return;
 
     const handlePieceMoved = async (payload) => {
-      const { animation, newState, syncArray } = payload;
+      const { animation, updates, syncArray } = payload;
 
       if (syncArray && Array.isArray(syncArray) && syncArray.length === 2) {
         const localCurrent = syncArrRef.current[1]; 
@@ -225,7 +228,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
         if (localCurrent !== 0 && localCurrent !== serverPrevious) {
           console.warn(`[DESYNC] Expected Server Prev: ${localCurrent}, Got: ${serverPrevious}`);
           inputLockedRef.current = false; 
-          socket.emit("sync-state", { gameId }); 
+          socket.emit("sync-state", { gameId, color: myColor }); 
           return; 
         }
         
@@ -242,7 +245,19 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
         await runChariot(cutInfo.idx, cutInfo.fromRef, -2, cutInfo.color);
       }
 
-      gameActions.syncGameState(newState);
+      useGameStore.setState((state) => {
+          const newPlayers = { ...state.players };
+          if (updates.playerUpdates) {
+              Object.keys(updates.playerUpdates).forEach(pColor => {
+                  newPlayers[pColor] = { ...newPlayers[pColor], ...updates.playerUpdates[pColor] };
+              });
+          }
+          return {
+              move: { ...state.move, ...updates.move },
+              meta: { ...state.meta, ...updates.metaUpdates, syncTick: syncArray[1] },
+              players: newPlayers
+          };
+      });
       
       gameActions.setMoving(false);
       inputLockedRef.current = false;
@@ -267,12 +282,7 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
       socket.off("dice-rolled", handleDiceRolled);
       socket.off("state-synced", handleStateSynced);
     };
-  }, [socket, isOnline]);
-
-
-  // =========================================================================
-  // =========================  DESIGN & RENDER LAYER ========================
-  // =========================================================================
+  }, [socket, isOnline, gameId, myColor]);
 
   return (
     <div
@@ -292,7 +302,6 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
         else if (i === 27) neonColor = COLORS.Y;
         else if (i === 40) neonColor = COLORS.G;
 
-        // ✅ Only show hover cursor if the move is allowed AND it's your turn
         const cursorStyle = canMove ? 'cursor-pointer hover:bg-white/10' : 'cursor-default';
 
         return (
@@ -328,7 +337,6 @@ const GameBoard = memo(({ socket, gameId, isOnline, moveCount, timeOut, moving, 
                 G={pieceState.G?.get(i) ?? 0}
                 activeColor={turn}
                 COLORS={COLORS}
-                // ✅ Passes down canMove to Cell so pieces only pulse when it's YOUR turn
                 moveAllowed={canMove} 
               />
             </div>

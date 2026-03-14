@@ -317,9 +317,12 @@ const Options = () => {
     } else {
       setLoading(true);
       try {
-        await api.post('/api/auth/forgot-password', { email: formData.email });
+        const res=await api.post('/api/auth/forgot-password', { email: formData.email });
         setIsEmailSent(true);
-        toast.success("RECOVERY LINK BROADCAST.");
+        toast.success((res.data.message).toUpperCase());
+        // console.log((res.data.link).split('5173')[1])
+        // navigate((res.data.link).split('5173')[1])
+        window.open((res.data.link), '_blank');
       } catch (err) { toast.error("IDENTITY NODE NOT FOUND."); }
       finally { setLoading(false); }
     }
