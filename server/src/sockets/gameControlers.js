@@ -22,7 +22,8 @@ const releaseLock = (gameId) => {
 // HELPERS
 // ==========================================
 const getNextTurn = (currentColor, onBoard) => {
-    const activePlayers = MASTER_TURN_ORDER.filter(c => onBoard.includes(c));
+    const onBoardSet= new Set(onBoard);
+    const activePlayers = MASTER_TURN_ORDER.filter(c => onBoardSet.has(c));
     const currentIndex = activePlayers.indexOf(currentColor);
     return activePlayers[(currentIndex + 1) % activePlayers.length];
 };
@@ -103,7 +104,11 @@ export const handlePofInit = async (io, socket) => {
     const boardSize = socket.player.size;
     const username = socket.player.username || socket.player?.username;
 
-    await acquireLock(gameId); 
+    const currentSocketsInRoom = await io.in(socket.handshake.auth?.gameId).fetchSockets();
+    console.log(currentSocketsInRoom.length)
+    if(currentSocketsInRoom.length === boardSize){
+      await acquireLock(gameId);  
+    }
     try {
         socket.gameId = gameId;
         socket.playerColor = color;
@@ -134,10 +139,10 @@ export const handlePofInit = async (io, socket) => {
         
         state.players[color].socketId = socket.id;
         state.players[color].userId = username;
-        state.players[color].profile = socket.player.profile || "";
+        state.players[color].profile = socket.player.profile || "/defaultProfile.png";
         state.players[color].online = true;
 
-        if (state.meta.onBoard.length >= boardSize) state.meta.status = "RUNNING";
+        if (state.meta.onBoard.length === boardSize) state.meta.status = "RUNNING";
         // console.log(state)
         await redisClient.json.set(`game:${gameId}`, '.', state);
         socket.to(gameId).emit('add-player', { color, curCount, username, boardSize });

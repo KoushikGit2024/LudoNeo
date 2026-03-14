@@ -64,7 +64,7 @@ const socketGuard = async (socket, next, io) => {
             const playerCount = currentSocketsInRoom.length;
 
             // Match by username to see if they are in this room state
-            const existingPlayerRecord = playerStateList.find(p => p.username === socket.player.username);
+            const existingPlayerRecord = playerStateList.find(p => p.userId === socket.player.username);
             // console.log(existingPlayerRecord)
             if (existingPlayerRecord && existingPlayerRecord.socketId) {
                 const isOldSocketStillActive = currentSocketsInRoom.some(s => s.id === existingPlayerRecord.socketId);

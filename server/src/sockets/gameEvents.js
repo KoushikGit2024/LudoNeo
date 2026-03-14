@@ -227,11 +227,9 @@
 //           state.move.moveAllowed = true;
 //           state.move.ticks += 1;
 //           state.move.timeOut = false; 
-
 //           const hasValidMove = state.players[color].pieceIdx.some(idx => 
 //             (idx === -1 && diceValue === 6) || (idx !== -1 && idx + diceValue <= 56)
 //           );
-
 //           if (!hasValidMove) {
 //             state.move.turn = getNextTurn(color, state.meta.onBoard);
 //             state.move.rollAllowed = true;
@@ -453,12 +451,16 @@ export default function registerGameHandlers(io) {
     // console.log(await io.fetchSockets())
     // Auto-init for "Play with Friends" (POF) if auth data exists
     const gameType = socket.handshake.auth?.gameType;
-    if (gameType === "pof" && socket.player) {
-      handlePofInit(io, socket);
+    // socket.emit("my-specifications",{})
+    if(gameType==="pof"){
+      if (socket.player.size) {
+        handlePofInit(io, socket);
+      }
     }
 
     // Bind Event Listeners to Controllers
-    socket.on("join-game", (data) => handleJoinGame(io, socket, data));
+    if(gameType==="poi")
+      socket.on("join-game", (data) => handleJoinGame(io, socket, data));
     
     socket.on("sync-state", (data) => handleSyncState(socket, data));
     

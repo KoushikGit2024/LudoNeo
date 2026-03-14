@@ -134,45 +134,45 @@ const updateProfile = async (req, res, next) => {
             const verificationToken = generateToken();
             await redis.set(`verify:${verificationToken}`, user.email, { EX: 3600 });
             const verificationUrl = isProduction ? `https://ludoneo.onrender.com/options/signin?token=${verificationToken}` : `http://localhost:5173/options/signin?token=${verificationToken}`;
-            console.log(sendEmail)
-            await sendEmail({
-                email: user.email,
-                subject: `SYSTEM: Identity Uplink Required for Pilot ${user.fullname}`,
-                message: `
-                    <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
-                        <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
-                            <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
-                                [ UPLINK_PROTOCOL: v3.0 ]
-                            </h2>
-                            <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
-                        </div>
-                        <div style="line-height: 1.6;">
-                            <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
-                                Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname || user.fullname}</span>
-                            </h1>
-                            <p style="font-size: 14px; color: #a0a0a0;">
-                                Your neural signature has been detected. To finalize your integration into the 
-                                <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
-                                pilot identity through our secure verification node.
-                            </p>
-                            <div style="text-align: center; margin: 40px 0;">
-                                <a href="${verificationUrl}" 
-                                style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
-                                INITIALIZE_NEURAL_LINK
-                                </a>
-                            </div>
-                            <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
-                                <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
-                                If this uplink was not requested by you, please terminate the connection and ignore this data packet.
-                            </div>
-                        </div>
-                        <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
-                            &copy; 2026 Ludo Neo Grid Operations // Sector 7
-                        </div>
-                    </div>
-                `,
-            });
-            return res.json({success: false, message: "Email not verified. Link sent to registered email."});
+            // console.log(sendEmail)
+            // await sendEmail({
+            //     email: user.email,
+            //     subject: `SYSTEM: Identity Uplink Required for Pilot ${user.fullname}`,
+            //     message: `
+            //         <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
+            //             <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
+            //                 <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
+            //                     [ UPLINK_PROTOCOL: v3.0 ]
+            //                 </h2>
+            //                 <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
+            //             </div>
+            //             <div style="line-height: 1.6;">
+            //                 <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
+            //                     Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname || user.fullname}</span>
+            //                 </h1>
+            //                 <p style="font-size: 14px; color: #a0a0a0;">
+            //                     Your neural signature has been detected. To finalize your integration into the 
+            //                     <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
+            //                     pilot identity through our secure verification node.
+            //                 </p>
+            //                 <div style="text-align: center; margin: 40px 0;">
+            //                     <a href="${verificationUrl}" 
+            //                     style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
+            //                     INITIALIZE_NEURAL_LINK
+            //                     </a>
+            //                 </div>
+            //                 <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
+            //                     <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
+            //                     If this uplink was not requested by you, please terminate the connection and ignore this data packet.
+            //                 </div>
+            //             </div>
+            //             <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+            //                 &copy; 2026 Ludo Neo Grid Operations // Sector 7
+            //             </div>
+            //         </div>
+            //     `,
+            // });
+            return res.json({success: false, message: "Email not verified. Link sent to registered email.", link: verificationUrl});
         }
 
         if (file) {
@@ -343,49 +343,50 @@ const registerHandler = async (req, res, next) => {
         await redis.set(`verify:${verificationToken}`, email, { EX: 3600 });
         const verificationUrl =isProduction ? `https://ludoneo.onrender.com/options/signin?token=${verificationToken}` : `http://localhost:5173/options/signin?token=${verificationToken}`;
 
-        await sendEmail({
-            email,
-            subject: `SYSTEM: Identity Uplink Required for Pilot ${fullname}`,
-            message: `
-                <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
-                    <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
-                        <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
-                            [ UPLINK_PROTOCOL: v3.0 ]
-                        </h2>
-                        <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
-                    </div>
-                    <div style="line-height: 1.6;">
-                        <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
-                            Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname}</span>
-                        </h1>
-                        <p style="font-size: 14px; color: #a0a0a0;">
-                            Your neural signature has been detected. To finalize your integration into the 
-                            <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
-                            pilot identity through our secure verification node.
-                        </p>
-                        <div style="text-align: center; margin: 40px 0;">
-                            <a href="${verificationUrl}" 
-                            style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
-                            INITIALIZE_NEURAL_LINK
-                            </a>
-                        </div>
-                        <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
-                            <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
-                            If this uplink was not requested by you, please terminate the connection and ignore this data packet.
-                        </div>
-                    </div>
-                    <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
-                        &copy; 2026 Ludo Neo Grid Operations // Sector 7
-                    </div>
-                </div>
-            `,
-        });
+        // await sendEmail({
+        //     email,
+        //     subject: `SYSTEM: Identity Uplink Required for Pilot ${fullname}`,
+        //     message: `
+        //         <div style="background-color: #020205; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 40px; border: 2px solid #00ff3c; border-radius: 8px; max-width: 600px; margin: auto;">
+        //             <div style="border-bottom: 1px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 20px;">
+        //                 <h2 style="color: #00ff3c; text-transform: uppercase; letter-spacing: 3px; margin: 0;">
+        //                     [ UPLINK_PROTOCOL: v3.0 ]
+        //                 </h2>
+        //                 <p style="font-size: 12px; color: #555; margin: 5px 0 0 0;">TIMESTAMP: ${new Date().toISOString()}</p>
+        //             </div>
+        //             <div style="line-height: 1.6;">
+        //                 <h1 style="font-size: 22px; color: #ffffff; text-transform: uppercase; margin-top: 0;">
+        //                     Welcome to the Grid, <span style="color: #00ff3c;">Pilot ${fullname}</span>
+        //                 </h1>
+        //                 <p style="font-size: 14px; color: #a0a0a0;">
+        //                     Your neural signature has been detected. To finalize your integration into the 
+        //                     <strong style="color: #fff;">Ludo Neo System</strong>, you must authenticate your 
+        //                     pilot identity through our secure verification node.
+        //                 </p>
+        //                 <div style="text-align: center; margin: 40px 0;">
+        //                     <a href="${verificationUrl}" 
+        //                     style="background: #00ff3c; color: #000; padding: 15px 30px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 60, 0.5); display: inline-block; text-transform: uppercase;">
+        //                     INITIALIZE_NEURAL_LINK
+        //                     </a>
+        //                 </div>
+        //                 <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-left: 3px solid #00ff3c; font-size: 12px; color: #888;">
+        //                     <strong>SECURITY_NOTICE:</strong> This transmission link expires in <span style="color: #fff;">60 minutes</span>. 
+        //                     If this uplink was not requested by you, please terminate the connection and ignore this data packet.
+        //                 </div>
+        //             </div>
+        //             <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+        //                 &copy; 2026 Ludo Neo Grid Operations // Sector 7
+        //             </div>
+        //         </div>
+        //     `,
+        // });
 
         await User.create({ fullname, username, email, password, avatar: avatarUrl, isVerified: false });
 
         res.status(200).json({ 
             success: true, 
-            message: "Initialization link broadcast. Check your neural uplink (email)." 
+            message: "Initialization link broadcast. Check your neural uplink (email).",
+            link: verificationUrl
         });
     } catch (error) { next(error); }
 };
