@@ -134,3 +134,47 @@ export const deleteSavedGame = async (req, res, next) => {
     next(error);
   }
 }
+
+export const recordMatchStats = async (req, res, next) => {
+    try {
+        const { gameId, result, opponent, gameType } = req.body;
+        const userId = req.user.id;
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+        // 1. Calculate Base Progress
+        const xpGain = result === 'win' ? 750 : 200;
+        user.stats.xp += xpGain;
+        user.stats.totalMatches += 1;
+        
+        if (result === 'win') user.stats.wins += 1;
+        else if (result === 'loss') user.stats.losses += 1;
+
+        // 2. Process Level Ups
+        while (user.stats.xp >= user.stats.nextLevelXp) {
+            user.stats.level += 1;
+            user.stats.xp -= user.stats.nextLevelXp;
+            user.stats.nextLevelXp = Math.floor(user.stats.nextLevelXp * 1.6);
+        }
+
+        // 3. Update Win Rate
+        user.stats.winRate = user.stats.totalMatches > 0 
+            ? ((user.stats.wins / user.stats.totalMatches) * 100).toFixed(1) + '%' 
+            : "0%";
+
+        // 4. Update History (keep last 50 matches)
+        user.stats.matchHistory.push({ gameId, date: new Date(), result, opponent, gameType });
+        if (user.stats.matchHistory.length > 50) {
+            user.stats.matchHistory.shift();
+        }
+
+        await user.save();
+        
+        // Return updated user object so frontend Zustand store syncs automatically
+        res.status(200).json({ success: true, user });
+    } catch (error) {
+        console.error("❌ Record Match Stats Error:", error);
+        next(error);
+    }
+};

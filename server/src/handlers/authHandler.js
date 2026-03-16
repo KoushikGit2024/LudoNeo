@@ -98,10 +98,7 @@ const loginHandler = async (req, res, next) => {
             success: true,
             message: `Welcome back, ${user.fullname}`,
             user: {
-                username: user.username, 
-                fullname: user.fullname,
-                email: user.email, 
-                avatar: user.avatar 
+                ...user._doc,
             }
         });
     } catch (error) { 
@@ -218,10 +215,7 @@ const updateProfile = async (req, res, next) => {
             success: true,
             message: "Profile updated successfully",
             user: {
-                fullname: user.fullname,
-                username: user.username,
-                email: user.email,
-                avatar: user.avatar
+                ...user._doc,
             }
         });
     } catch (error) {
@@ -277,11 +271,7 @@ const initialFetch = async(req, res, next)=>{
         res.status(200).json({
             success: true,
             user: {
-                fullname: user.fullname,
-                username: user.username,
-                email: user.email,
-                avatar: user.avatar,
-                notifications: user.notifications
+                ...user._doc,
             },
             message: "User fetched successfully"
         });

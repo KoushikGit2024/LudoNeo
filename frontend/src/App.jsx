@@ -65,6 +65,7 @@ const getUser = async () => {
     const res = await api.get("/api/auth/me");
     if (res.data?.user) {
       updateUserInfo(res.data.user);
+      // console.log(res.data.user);
     }
   } catch (err) {
     console.error("Auth sync failed or no active session.");

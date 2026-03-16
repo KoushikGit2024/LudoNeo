@@ -1,17 +1,20 @@
+// ==========================================
+// 1. userStore.js
+// ==========================================
 import { create } from "zustand";
-import { devtools } from "zustand/middleware"; // persist removed
+import { devtools } from "zustand/middleware";
 
 const useUserStore = create(
     devtools(
         (set, get) => ({
-            // --- USER IDENTITY (From Registration) ---
+            // --- USER IDENTITY ---
             info: {
                 fullname: "New Pilot",
                 username: "identity_pending",
                 email: "user@ludoneo.game",
                 avatar: "/defaultProfile.png",
                 isVerified: false,
-                notifications: [], // ✅ Added Notification Array
+                notifications: [], 
             },
 
             // --- GAME STATISTICS ---
@@ -21,16 +24,15 @@ const useUserStore = create(
                 nextLevelXp: 1000,
                 wins: 0,
                 losses: 0,
-                draws: 0,
                 totalMatches: 0,
                 winRate: "0%",
-                matchHistory: [], // Array of objects: { gameId, date, result, opponent }
+                matchHistory: [], // Array of objects: { gameId, date, result, opponent, gameType }
             },
 
             // --- CUSTOMIZATION & INVENTORY ---
             inventory: {
-                badges: [],      // Earned achievements
-                themes: ["default_neon"], // Unlocked board themes
+                badges: [], 
+                themes: ["default_neon"], 
                 currentTheme: "default_neon",
                 avatarBorders: ["standard"],
                 currentBorder: "standard",
@@ -44,9 +46,7 @@ const useUserStore = create(
                 lowGraphics: false,
             },
         }),
-        {
-            name: "ludo-neo-user-storage", // Unique name for DevTools
-        }
+        { name: "ludo-neo-user-storage" }
     )
 );
 

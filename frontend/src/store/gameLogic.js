@@ -2,6 +2,7 @@ import { toast } from "react-toastify";
 import useGameStore from "./useGameStore";
 import piecePath from '../contexts/PiecePath.js'; 
 import api from "@/api/axiosConfig";
+import { updateUserInfo } from "./userActions"; // Added for stat synchronization
 
 const initialState = {
   meta: { gameId: "", status: "WAITING", type: "offline", gameStartedAt: [], winLast: 0, playerCount: 4, onBoard: new Set(['R', 'B', 'Y', 'G']), syncTick: 0 },
@@ -178,6 +179,29 @@ const gameActions = {
     try {
       await api.post('/api/games/save', payload);
       toast.success(state.meta.status === "FINISHED" ? "Match results saved!" : "Game progress saved!", { theme: "dark" });
+
+      // ==============================================
+      // NEW STAT UPDATION LOGIC ON GAME FINISH
+      // ==============================================
+      if (state.meta.status === "FINISHED") {
+          // Identify local user's color (defaults to 'R' based on initiateOfflineGameLogic)
+          const userColor = state.meta.color || "R";
+          
+          // User wins if their win position is 1st
+          const userDidWin = state.players[userColor].winPosn === 1;
+
+          const statsPayload = {
+              gameId: state.meta.gameId,
+              result: userDidWin ? 'win' : 'loss',
+              opponent: state.meta.type === 'bot' ? 'A.I. Core' : 'Local Challenger',
+              gameType: state.meta.type
+          };
+
+          const statsRes = await api.post('/api/games/record-stats', statsPayload);
+          if (statsRes.data.success) {
+              updateUserInfo(statsRes.data.user);
+          }
+      }
     } catch (error) { toast.error("Failed to sync with server"); }
   },
 
