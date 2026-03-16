@@ -246,18 +246,15 @@ const Options = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    
-    if(formData.username.length < 3){
+    if (formData.username.length < 3) {
       toast.error("Username must be at least 3 characters long.");
       return;
     }
-    if(formData.password.length < 6){
+    if (formData.password.length < 6) {
       toast.error("Password must be at least 6 characters long.");
       return;
     }
-    
     setLoading(true);
-    
     try {
       const form = new FormData();
       Object.keys(formData).forEach(key => form.append(key, formData[key]));
@@ -266,21 +263,20 @@ const Options = () => {
         form.append('avatar', dataURLtoBlob(finalImage), `${formData.username}.jpg`);
       }
       
-      const res = await api.post('/api/auth/register', form, { 
-        headers: { 'Content-Type': 'multipart/form-data' } 
-      });
-      
+      // CRITICAL FIX: Remove the manual headers object! 
+      // Axios will automatically delete the 'application/json' default 
+      // and set the correct 'multipart/form-data; boundary=...' for you.
+      const res = await api.post('/api/auth/register', form); 
       setIsEmailSent(true); 
-      toast.success("REGISTRATION SUCCESSFUL.");
+      if(res.data.success){
+        toast.success("REGISTRATION SUCCESSFUL.");
+      }
       
       if (res.data.link) {
-        console.log(res);
-        
-        // Extract the path and query string natively
+        // Safely parse the URL regardless of environment
         const urlObj = new URL(res.data.link);
         const redirect = urlObj.pathname + urlObj.search; 
         
-        console.log("Navigating to:", redirect);
         setTimeout(() => { navigate(redirect); }, 500);
       }
     } catch (err) { 
