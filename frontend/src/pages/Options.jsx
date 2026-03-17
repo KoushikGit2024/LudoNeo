@@ -248,7 +248,7 @@ const Options = () => {
       const form = new FormData();
       Object.keys(formData).forEach(key => form.append(key, formData[key]));
       if (finalImage?.startsWith('data:')) form.append('avatar', dataURLtoBlob(finalImage), `${formData.username}.jpg`);
-      const res = await api.post('/api/auth/register', form)//, { headers: { 'Content-Type': 'multipart/form-data' } }); 
+      const res = await api.post('/api/auth/register', form, { headers: { 'Content-Type': 'multipart/form-data' } }); 
       setIsEmailSent(true); 
       if (res.data.success) toast.success("REGISTRATION SUCCESSFUL.");
       if (res.data.link) {
@@ -314,7 +314,7 @@ const Options = () => {
       const form = new FormData();
       form.append('fullname', formData.fullname);
       if (finalImage?.startsWith('data:')) form.append('avatar', dataURLtoBlob(finalImage), 'update.jpg');
-      const res = await api.put('/api/auth/update-profile', form)//, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const res = await api.put('/api/auth/update-profile', form, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (res.data.link) window.open(res.data.link, '_blank');
       if (!res.data.success) { toast.error(res.data.message); return; }
       updateUserInfo(res.data.user);

@@ -18,9 +18,9 @@ const imagekit = new ImageKit({
 
 const getCookieOptions = () => ({
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production", 
-    sameSite: "strict",
-    maxAge: 30 * 24 * 60 * 60 * 1000, 
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
 });
 
 const generateToken = () => crypto.randomBytes(32).toString("hex");

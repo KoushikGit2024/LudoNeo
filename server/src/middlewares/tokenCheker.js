@@ -5,7 +5,7 @@ const tokenChecker = (req, res, next) => {
     const token = req.cookies?.token;
     
     if (!token) {
-        console.log("No token found", res.cookies);
+        // console.log("No token found", res.cookies);
         return res.status(401).json({
             success: false,
             message: "Authentication required. Please log in."
