@@ -69,6 +69,7 @@ const GameBoard = memo(({ moveCount, timeOut, moving, pieceIdxArr, winState }) =
   
   const transferTurn = gameActions.transferTurn;
   const [pathPoints, setPathPoints] = useState([]);
+  const pathPointsRef = useRef([]); // 🐛 FIX: Added mutable ref to fix stale closures
   const [showChariot, setShowChariotDisplay] = useState(false);
   const [chariotColor, setChariotColor] = useState('R');
 
@@ -117,6 +118,7 @@ const GameBoard = memo(({ moveCount, timeOut, moving, pieceIdxArr, winState }) =
       }
     });
     setPathPoints(tempPts);
+    pathPointsRef.current = tempPts; // 🐛 FIX: Sync the calculated points to the ref immediately
   };
 
   useEffect(() => {
@@ -128,26 +130,29 @@ const GameBoard = memo(({ moveCount, timeOut, moving, pieceIdxArr, winState }) =
 
   const oneStepAnimation = (from, to) => {
     return new Promise(resolve => {
-      if (!pathPoints[from] || !pathPoints[to] || !chariotRef.current) {
+      // 🐛 FIX: Read coordinates from the mutable ref, not the stale state closure
+      const pts = pathPointsRef.current;
+
+      if (!pts[from] || !pts[to] || !chariotRef.current) {
         resolve();
         return;
       }
-      const targetW = pathPoints[to].w;
-      const targetH = pathPoints[to].h;
+      const targetW = pts[to].w;
+      const targetH = pts[to].h;
 
       gsap.fromTo(
         chariotRef.current,
         {
-          x: pathPoints[from].cx - targetW / 2,
-          y: pathPoints[from].cy - targetH / 2,
-          width: pathPoints[from].w,
-          height: pathPoints[from].h
+          x: pts[from].cx - targetW / 2,
+          y: pts[from].cy - targetH / 2,
+          width: pts[from].w,
+          height: pts[from].h
         },
         {
-          x: pathPoints[to].cx - targetW / 2,
-          y: pathPoints[to].cy - targetH / 2,
-          width: pathPoints[to].w,
-          height: pathPoints[to].h,
+          x: pts[to].cx - targetW / 2,
+          y: pts[to].cy - targetH / 2,
+          width: pts[to].w,
+          height: pts[to].h,
           duration: 0.5, 
           ease: "power1.inOut",
           onComplete: resolve
@@ -537,7 +542,8 @@ const GameBoard = memo(({ moveCount, timeOut, moving, pieceIdxArr, winState }) =
       <div
         ref={chariotRef}
         className="piece absolute z-[100] pointer-events-none text-white bg-amber-2000 flex items-center justify-center aspect-square"
-        style={{ width: pathPoints[1]?.width || `auto`, display: (showChariot) ? "flex" : "none", filter: 'drop-shadow(0 0 15px white)' }}
+        // 🐛 FIX: Used pathPoints[1]?.w instead of .width to match the property mapped in the calculator
+        style={{ width: pathPoints[1]?.w || `auto`, display: (showChariot) ? "flex" : "none", filter: 'drop-shadow(0 0 15px white)' }}
       >
         <Cell R={chariotColor === 'R'} B={chariotColor === 'B'} Y={chariotColor === 'Y'} G={chariotColor === 'G'} COLORS={COLORS} />
       </div>

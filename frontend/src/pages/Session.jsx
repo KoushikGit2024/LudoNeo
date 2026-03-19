@@ -60,15 +60,22 @@ const Session = () => {
   //   • Effect 2 (below) handles the beforeunload listener (deps: [gameStatus])
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isOnlineMode) return;
+    if (!isOnlineMode) return; 
 
-    if (userInfo && !userInfo?.email) {
-      toast.info("Neural link requires Pilot Registration.", { theme: "dark" });
+    if (!userInfo) return; // Wait until userInfo is populated
+
+
+    if (!(userInfo.fullname && userInfo.username && userInfo.email) && isOnlineMode) {
+      // toast.error("IDENTITY REQUIRED: Connect to grid to access network multiplayer.", { theme: "dark" });
       navigate("/dashboard");
       return;
     }
+    if(import.meta.env.PROD){
+      toast.info("Mode unavailable due to resource limitations.")
 
-    if (!userInfo) return; // Wait until userInfo is populated
+      return;
+    }
+
     if(boardType==="poi"){
       socket.auth = {
         playerDescription: {
@@ -131,7 +138,7 @@ const Session = () => {
   // Fix: Only emit join-game when boardType === 'poi'.
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isOnlineMode) return;
+    if (!isOnlineMode || import.meta.env.PROD) return;
 
     const handleError = (err) => {
       if (redirectedRef.current) return;

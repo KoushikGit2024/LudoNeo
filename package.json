@@ -1,5 +1,5 @@
 {
-  "name": "ludochamp",
+  "name": "ludoneo",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -9,15 +9,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KoushikGit2024/LudoChamp.git"
+    "url": "git+https://github.com/KoushikGit2024/LudoNeo.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/KoushikGit2024/LudoChamp/issues"
+    "url": "https://github.com/KoushikGit2024/LudoNeo/issues"
   },
-  "homepage": "https://github.com/KoushikGit2024/LudoChamp#readme",
+  "homepage": "https://github.com/KoushikGit2024/LudoNeo#readme",
   "description": ""
 }

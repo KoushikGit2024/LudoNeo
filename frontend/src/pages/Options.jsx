@@ -6,7 +6,7 @@ import {
   ArrowLeft, User, Settings, LogIn, UserPlus, 
   CheckCircle, XCircle, Loader2, Mail, Fingerprint, X, Crop, Upload, 
   ShieldCheck, Eye, EyeOff, Save, RefreshCcw, Trash2, Activity, Cpu, Globe, Crosshair,
-  Volume2, VolumeX, Music, Music2, Trophy, Zap, Target, Shield, Star, Swords, Skull, Clock
+  Volume2, VolumeX, Music, Music2, Trophy, Zap, Target, Shield, Star, Swords, Skull, Clock, Ban
 } from 'lucide-react';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -23,14 +23,15 @@ import "../styles/options.css";
 // BADGE DEFINITIONS
 // ==========================================
 const BADGE_DEFS = [
-  { id: 'first_blood',  label: 'First Blood',     icon: <Swords size={16}/>,    color: '#ff4444', cond: (s) => s.wins >= 1,                                                             desc: '1st Win'         },
-  { id: 'veteran',      label: 'Veteran',         icon: <Shield size={16}/>,    color: '#00D4FF', cond: (s) => s.wins >= 10,                                                            desc: '10 Wins'         },
-  { id: 'champion',     label: 'Champion',        icon: <Trophy size={16}/>,    color: '#fff200', cond: (s) => s.wins >= 50,                                                            desc: '50 Wins'         },
-  { id: 'legendary',    label: 'Legendary',       icon: <Star size={16}/>,      color: '#ff0505', cond: (s) => s.wins >= 100,                                                           desc: '100 Wins'        },
-  { id: 'survivor',     label: 'Survivor',        icon: <Zap size={16}/>,       color: '#00ff3c', cond: (s) => s.totalMatches >= 50,                                                    desc: '50 Matches'      },
-  { id: 'sharp',        label: 'Sharp Shooter',   icon: <Crosshair size={16}/>, color: '#ec4899', cond: (s) => s.totalMatches >= 20 && parseFloat(s.winRate) >= 70,                     desc: '70%+ Win Rate'   },
-  { id: 'bot_slayer',   label: 'Bot Slayer',      icon: <Cpu size={16}/>,       color: '#a855f7', cond: (s) => s.matchHistory?.some(m => m.gameType === 'bot' && m.result === 'win'),   desc: 'Defeat AI'       },
-  { id: 'grid_master',  label: 'Grid Master',     icon: <Globe size={16}/>,     color: '#f97316', cond: (s) => s.matchHistory?.some(m => m.gameType === 'online' && m.result === 'win'),desc: 'Online Win'     },
+  { id: 'first_blood',  label: 'First Blood',   icon: <Swords size={16}/>,    color: '#ff4444', cond: (s) => s.wins >= 1,                                                                     desc: '1st Win'         },
+  { id: 'veteran',      label: 'Veteran',       icon: <Shield size={16}/>,    color: '#00D4FF', cond: (s) => s.wins >= 10,                                                                    desc: '10 Wins'         },
+  { id: 'champion',     label: 'Champion',      icon: <Trophy size={16}/>,    color: '#fff200', cond: (s) => s.wins >= 50,                                                                    desc: '50 Wins'         },
+  { id: 'legendary',    label: 'Legendary',     icon: <Star size={16}/>,      color: '#ff0505', cond: (s) => s.wins >= 100,                                                                   desc: '100 Wins'        },
+  { id: 'survivor',     label: 'Survivor',      icon: <Zap size={16}/>,       color: '#00ff3c', cond: (s) => s.totalMatches >= 50,                                                            desc: '50 Matches'      },
+  { id: 'sharp',        label: 'Sharp Shooter', icon: <Crosshair size={16}/>, color: '#ec4899', cond: (s) => s.totalMatches >= 20 && parseFloat(s.winRate) >= 70,                             desc: '70%+ Win Rate'   },
+  // 🐛 FIX: Added support for both "win" and "1" in the history log checks so badges still unlock
+  { id: 'bot_slayer',   label: 'Bot Slayer',    icon: <Cpu size={16}/>,       color: '#a855f7', cond: (s) => s.matchHistory?.some(m => m.gameType === 'bot' && (m.result === 'win' || m.result === '1')),   desc: 'Defeat AI'       },
+  { id: 'grid_master',  label: 'Grid Master',   icon: <Globe size={16}/>,     color: '#f97316', cond: (s) => s.matchHistory?.some(m => m.gameType === 'online' && (m.result === 'win' || m.result === '1')),desc: 'Online Win'     },
 ];
 
 // ==========================================
@@ -79,6 +80,24 @@ async function getCroppedImg(image, crop) {
   ctx.drawImage(image, crop.x * scaleX, crop.y * scaleY, crop.width * scaleX, crop.height * scaleY, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', 0.5); 
 }
+
+// 🐛 FIX: Helper to map positions to colors, text, and icons safely (Backwards compatible)
+const getMatchDisplayInfo = (result) => {
+  switch (result?.toString()) {
+    case '1': case 'win':
+      return { text: '1st Place (Victory)', color: '#00ff3c', icon: <Trophy size={12} className="text-[#00ff3c]"/> };
+    case '2':
+      return { text: '2nd Place', color: '#00D4FF', icon: <Star size={12} className="text-[#00D4FF]"/> };
+    case '3':
+      return { text: '3rd Place', color: '#fff200', icon: <Shield size={12} className="text-[#fff200]"/> };
+    case '4': case 'loss':
+      return { text: 'Defeat', color: '#ff0505', icon: <Skull size={12} className="text-[#ff0505]"/> };
+    case '0':
+      return { text: 'Abandoned (DNF)', color: '#6b7280', icon: <Ban size={12} className="text-gray-500"/> };
+    default:
+      return { text: 'Unknown', color: '#6b7280', icon: <Activity size={12} className="text-gray-500"/> };
+  }
+};
 
 // ==========================================
 // MAIN COMPONENT
@@ -130,8 +149,14 @@ const Options = () => {
     inventory: state.inventory,
     settings: state.settings
   })));
-
-  // Derived badge state
+  
+  useEffect(()=>{
+    if (!(info.fullname && info.username && info.email) && subOption==="profile") {
+      navigate("/options/signin");
+      return;
+    }
+  },[info,subOption]);
+  
   const earnedBadges = BADGE_DEFS.filter(b => b.cond(stats));
 
   // ==========================================
@@ -225,7 +250,7 @@ const Options = () => {
     try {
       const res = await api.get('/api/auth/me');
       if (res.data.success) updateUserInfo(res.data.user);
-    } catch (err) { console.log("Node status: Offline"); }
+    } catch (err) { console.error("Node status: Offline", err); }
     finally { setTimeout(() => { setProfileLoading(false); setIsSyncing(false); }, 600); }
   };
 
@@ -304,10 +329,6 @@ const Options = () => {
 
   const handleUpdateProfile = async (e) => {
     if (e) e.preventDefault();
-    console.log(formData.fullname, info.fullname);
-    // console.log(formData.username, info.username);
-    console.log(formData.email, info.email);
-    console.log(finalImage);
     if (formData.fullname===info.fullname && formData.email===info.email && finalImage===info.avatar) { toast.warn("PROFILE UPDATE FAILED: NO CHANGES DETECTED."); return; }
     setLoading(true); setIsSyncing(true);
     try {
@@ -335,9 +356,6 @@ const Options = () => {
     finally { setLoading(false); }
   };
 
-  // ==========================================
-  // XP percentage
-  // ==========================================
   const xpPercent = Math.min(((stats?.xp || 0) / (stats?.nextLevelXp || 1000)) * 100, 100);
 
   // ==========================================
@@ -568,9 +586,9 @@ const Options = () => {
                     {/* Stats Grid */}
                     <div className="grid grid-cols-3 gap-4">
                       {[
-                        { label: 'Victories',    value: stats?.wins         || 0,    color: '#00ff3c', icon: <Trophy size={16}/> },
-                        { label: 'Defeats',      value: stats?.losses       || 0,    color: '#ff0505', icon: <Skull size={16}/> },
-                        { label: 'Win_Rate',     value: stats?.winRate      || '0%', color: '#00D4FF', icon: <Target size={16}/> },
+                        { label: 'Victories',    value: stats?.wins        || 0,    color: '#00ff3c', icon: <Trophy size={16}/> },
+                        { label: 'Defeats',      value: stats?.losses      || 0,    color: '#ff0505', icon: <Skull size={16}/> },
+                        { label: 'Win_Rate',     value: stats?.winRate     || '0%', color: '#00D4FF', icon: <Target size={16}/> },
                       ].map(item => (
                         <div key={item.label} className="p-4 bg-white/[0.02] border border-white/5 rounded-[1.5rem] text-center space-y-2 hover:border-white/10 transition-colors">
                           <div className="flex justify-center" style={{ color: item.color }}>{item.icon}</div>
@@ -620,23 +638,31 @@ const Options = () => {
                           <h5 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">Match_History</h5>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {stats.matchHistory.slice(-10).reverse().map((match, i) => (
-                            <div key={i} className="group relative overflow-hidden rounded-xl bg-black/40 border border-white/[0.03] p-4 hover:border-white/10 transition-colors">
-                              <div className={`absolute top-0 left-0 w-1.5 h-full transition-transform origin-left ${match.result === 'win' ? 'bg-[#00ff3c]' : 'bg-[#ff0505]'}`} />
-                              <div className="flex justify-between items-center pl-2">
-                                <div>
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2">
-                                    {match.result === 'win' ? <Trophy size={12} className="text-[#00ff3c]"/> : <Skull size={12} className="text-[#ff0505]"/>}
-                                    {match.result === 'win' ? 'Victory' : 'Defeat'}
-                                  </p>
-                                  <p className="text-[8px] text-gray-500 font-mono mt-1 uppercase tracking-widest">
-                                    <span className="text-[#00D4FF]">{match.gameType}</span> • VS {match.opponent}
-                                  </p>
+                          {stats.matchHistory.slice(-10).reverse().map((match, i) => {
+                            // 🐛 FIX: Parse the match status dynamically via the helper function
+                            const displayInfo = getMatchDisplayInfo(match.result);
+                            
+                            return (
+                              <div key={i} className="group relative overflow-hidden rounded-xl bg-black/40 border border-white/[0.03] p-4 hover:border-white/10 transition-colors">
+                                <div 
+                                  className="absolute top-0 left-0 w-1.5 h-full transition-transform origin-left" 
+                                  style={{ backgroundColor: displayInfo.color }} 
+                                />
+                                <div className="flex justify-between items-center pl-2">
+                                  <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2">
+                                      {displayInfo.icon}
+                                      {displayInfo.text}
+                                    </p>
+                                    <p className="text-[8px] text-gray-500 font-mono mt-1 uppercase tracking-widest">
+                                      <span className="text-[#00D4FF]">{match.gameType}</span> • VS {match.opponent}
+                                    </p>
+                                  </div>
+                                  <p className="text-[8px] text-gray-600 font-mono">{new Date(match.date).toLocaleDateString()}</p>
                                 </div>
-                                <p className="text-[8px] text-gray-600 font-mono">{new Date(match.date).toLocaleDateString()}</p>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}

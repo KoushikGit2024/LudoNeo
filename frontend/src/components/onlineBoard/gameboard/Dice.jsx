@@ -25,6 +25,9 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myCol
   // Dedicated ref for fake-roll interval (not piggy-backed on DOM element)
   const fakeRollIntervalRef = useRef(null);
 
+  useEffect(()=>{
+    console.log("gameId", gameId);
+  },[gameId])
   // Tracks whether we are waiting for a server dice-rolled response.
   const isAwaitingServerRef = useRef(false);
 
@@ -89,15 +92,17 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myCol
       // Stop any existing fake roll (from this player's own click)
       clearFakeRoll();
 
+      // 🐛 FIX: Patch the state IMMEDIATELY to lock the board.
+      // The backend just sent moveUpdates with `moving: true`.
+      // Applying this now forces `canMove` to false in GameBoard until the server unlocks it.
+      onlineGameActions.patchDeltaState({ move: moveUpdates }, syncArray?.[1]);
+
       // If this is from another player — start our own brief visual animation
       if (!isAwaitingServerRef.current) {
         setRolling(true);
         playSound();
       }
 
-      // FIX #3: Flutter for DICE_FLUTTER_MS then snap to final value
-      // This ensures the animation completes before piece-move begins,
-      // giving the board the full 1900ms before piece animations start.
       const resolveInterval = setInterval(() => {
         setValue(Math.floor(Math.random() * 6) + 1);
       }, DICE_FLUTTER_TICK);
@@ -107,8 +112,9 @@ const Dice = ({ turn, rollAllowed, gameFinished, socket, gameId, isOnline, myCol
         setValue(finalValue);
         setRolling(false);
         isAwaitingServerRef.current = false;
-        // Patch store after animation so UI transitions smoothly
-        onlineGameActions.patchDeltaState({ move: moveUpdates }, syncArray?.[1]);
+        
+        // Note: We no longer patch the state here. The visual dice just updates to match 
+        // the state we already locked in 👆
       }, DICE_FLUTTER_MS);
     };
 

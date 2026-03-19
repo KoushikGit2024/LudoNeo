@@ -124,12 +124,12 @@ const notificationSchema = new mongoose.Schema({
 });
 
 const matchHistorySchema = new mongoose.Schema({
-    gameId: { type: String, required: false, unique: true },
+    gameId: { type: String, required: false }, // Removed unique: true to prevent duplicate key errors
     date: { type: Date, default: Date.now },
-    result: { type: String, enum: ["win", "loss"], required: false },
+    result: { type: String, required: false }, // 🐛 REMOVED ENUM: Now accepts "1", "2", "3", "4", or "0" (Abandoned)
     opponent: { type: String },
     gameType: { type: String, enum: ["offline", "bot", "online", "pof", "poi"], required: false }
-}, { _id: false }); 
+}, { _id: false });
 
 const userSchema = new mongoose.Schema({
     fullname: { type: String, required: true, trim: true },

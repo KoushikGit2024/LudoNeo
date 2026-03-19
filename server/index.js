@@ -18,6 +18,9 @@ import redis from "./src/config/redis.js";
 import gameRoute from "./src/routes/gameRoutes.js";
 import errorHandler from "./src/middlewares/errorHandler.js";
 
+// ✅ Import the new Logger Middleware
+import requestLogger from "./src/middlewares/requestLogger.js";
+
 dotenv.config();
 
 const app = express();
@@ -33,27 +36,25 @@ const allowedOrigins = rawOrigins
 
 const corsOptions = {
   origin: (origin, cb) => {
-
     if (process.env.NODE_ENV !== "production") {
       return cb(null, true);
     }
-
     if (!origin) return cb(null, true);
-
     if (allowedOrigins.some(o => origin.startsWith(o))) {
       return cb(null, true);
     }
-
     return cb(new Error("Origin not allowed by CORS"), false);
   },
   credentials: true
 };
 
-// console.log(allowedOrigins);
 // ===== Middlewares =====
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
+
+// ✅ Add the logger middleware here so it triggers on EVERY route
+app.use(requestLogger);
 
 // ===== MongoDB Connection =====
 connectMongo();
@@ -61,11 +62,10 @@ connectMongo();
 // ===== Socket.io Setup =====
 const io = new Server(server, {cors:corsOptions});
 
-
 io.use((socket,next)=>socketGaurd(socket,next,io));
-
 registerGameHandlers(io);
-// ===== HTTP Routes ====={socket.join})//
+
+// ===== HTTP Routes =====
 
 // Root Route
 app.get('/', async (req, res) => {
@@ -80,7 +80,7 @@ app.get('/', async (req, res) => {
 // Health check
 app.get("/test", (req, res) => res.send({ msg: "Server running well!!!" }));
 
-// Check Redis Connection (Updated to modern async/await syntax)
+// Check Redis Connection
 app.get("/redis", async (req, res) => {
     try {
         await redis.set('foo', 'bar');
@@ -94,7 +94,6 @@ app.get("/redis", async (req, res) => {
 // Auth Routes
 app.use('/api/auth', authRoute);
 app.use('/api/games', gameRoute);
-
 
 // ===== Global Error Handler =====
 app.use(errorHandler);

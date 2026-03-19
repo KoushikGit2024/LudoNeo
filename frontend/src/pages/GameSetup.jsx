@@ -29,6 +29,8 @@ const GameSetup = () => {
   const isBot     = boardType === 'bot';
   const isOffline = boardType === 'offline';
 
+  
+
   const titleMap = {
     poi:     "SQUAD_STRIKE",
     pof:     "ELITE_LINK",

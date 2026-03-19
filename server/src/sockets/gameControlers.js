@@ -146,6 +146,44 @@ const applyPieceMove = (state, color, pieceIdx, moveCount) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ABANDON PENALTY (Rage-Quit/AFK Fix)
+// ─────────────────────────────────────────────────────────────────────────────
+const recordAbandonLoss = async (username, gameId, gameType, opponentsList) => {
+  try {
+    if (!username) return;
+    const user = await User.findOne({ username });
+    if (!user) return;
+
+    user.stats.xp += 25; 
+    user.stats.totalMatches += 1;
+    user.stats.losses += 1;
+
+    user.stats.winRate = user.stats.totalMatches > 0 
+      ? ((user.stats.wins / user.stats.totalMatches) * 100).toFixed(1) + '%' 
+      : "0%";
+
+    const opponentString = opponentsList.length > 0 ? opponentsList.join(", ") : "AI/Offline";
+
+    user.stats.matchHistory.push({ 
+      gameId, 
+      date: new Date(), 
+      result: "0", // 🐛 FIX: 0 indicates "Abandoned/DNF"
+      opponent: opponentString, 
+      gameType 
+    });
+    
+    if (user.stats.matchHistory.length > 50) {
+        user.stats.matchHistory.shift();
+    }
+
+    await user.save();
+    console.log(`[SCORE] 🚫 Abandon penalty (Position 0) applied to ${username}`);
+  } catch (err) {
+    console.error("❌ [SCORE] Failed to apply abandon penalty:", err);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TIMER MANAGEMENT & AUTO-MOVE (2-Step Async Lock Pattern)
 // ─────────────────────────────────────────────────────────────────────────────
 const manageTurnTimer = (io, gameId, color) => {
@@ -157,7 +195,6 @@ const manageTurnTimer = (io, gameId, color) => {
   const timer = setTimeout(async () => {
     let diceValue, validPieces = [];
 
-    // STEP 1: Roll dice and emit state (Release lock immediately after)
     await acquireLock(gameId);
     try {
       const state = await redisClient.json.get(`game:${gameId}`);
@@ -175,10 +212,22 @@ const manageTurnTimer = (io, gameId, color) => {
       }
 
       if (skipCount >= AUTO_SKIP_LIMIT) {
+        const nextTurnColor = getNextTurn(color, state.meta.onBoard);
+
+        const leaverUsername = state.players[color]?.username;
+        const gameType = state.meta.type;
+        const opponents = MASTER_TURN_ORDER
+          .map(c => state.players[c]?.username)
+          .filter(name => name && name !== leaverUsername);
+
         state.meta.onBoard = state.meta.onBoard.filter(c => c !== color);
         state.meta.playerCount = state.meta.onBoard.length;
         state.players[color] = getSkeletonPlayer(color);
         delete state.meta.timeoutCounts[color];
+
+        if (leaverUsername) {
+          recordAbandonLoss(leaverUsername, gameId, gameType, opponents);
+        }
 
         if (state.meta.onBoard.length === 0) {
           await redisClient.del(`game:${gameId}`);
@@ -187,21 +236,20 @@ const manageTurnTimer = (io, gameId, color) => {
           return;
         }
 
-        // ===============================================
-        // AUTO-SKIP: CHECK IF GAME ENDS DUE TO AFK PURGE
-        // ===============================================
         if (state.meta.onBoard.length < 2) {
           state.meta.status      = "FINISHED";
           state.move.rollAllowed = false;
           state.move.moveAllowed = false;
           state.move.turn        = null;
           
+          // 🐛 FIX: Dynamically assign the next available win rank to the survivor
           const survivor = state.meta.onBoard[0];
           if (survivor && state.players[survivor].winPosn === 0) {
-            state.players[survivor].winPosn = 1; // Crown the last man standing
+            state.meta.winLast += 1;
+            state.players[survivor].winPosn = state.meta.winLast; 
           }
         } else {
-          state.move.turn          = getNextTurn(color, state.meta.onBoard);
+          state.move.turn          = nextTurnColor;
           state.move.rollAllowed   = true;
           state.move.moveAllowed   = false;
           state.move.moveCount     = 0;
@@ -217,7 +265,6 @@ const manageTurnTimer = (io, gameId, color) => {
           color, message: `Node ${color} removed: exceeded auto-skip limit.`, newState: state, syncArray: [state.meta.syncTick - 1, state.meta.syncTick]
         });
 
-        // Trigger flush if game just ended from afk limit
         if (state.meta.status === "FINISHED") {
           await flushScoresToProfiles(gameId, state); 
         } else {
@@ -226,11 +273,11 @@ const manageTurnTimer = (io, gameId, color) => {
         return;
       }
 
-      // Auto Roll
       diceValue = Math.floor(Math.random() * 6) + 1;
       state.move.moveCount   = diceValue;
       state.move.rollAllowed = false;
       state.move.timeOut     = true;
+      state.move.moving      = true; 
 
       validPieces = state.players[color].pieceIdx
         .map((idx, i) => ({ idx, i }))
@@ -255,12 +302,14 @@ const manageTurnTimer = (io, gameId, color) => {
       releaseLock(gameId); 
     }
 
-    // STEP 2: Wait 2 seconds for frontend dice animation, then process result
     setTimeout(async () => {
       await acquireLock(gameId);
       try {
         const delayedState = await redisClient.json.get(`game:${gameId}`);
         if (!delayedState || delayedState.meta.status !== "RUNNING" || delayedState.move.turn !== color) return;
+
+        delayedState.move.timeOut = false;
+        delayedState.move.moving = false;
 
         if (validPieces.length === 0) {
           delayedState.move.turn          = getNextTurn(color, delayedState.meta.onBoard);
@@ -306,7 +355,7 @@ const manageTurnTimer = (io, gameId, color) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCORE DB FLUSH (Fully Integrated & Dynamic)
+// SCORE DB FLUSH (Optimized Bulk Operations)
 // ─────────────────────────────────────────────────────────────────────────────
 const flushScoresToProfiles = async (gameId, state) => {
   try {
@@ -314,11 +363,9 @@ const flushScoresToProfiles = async (gameId, state) => {
     
     const gameType = state.meta.type;
 
-    // Build scores mapping from final state object
     const scores = {};
     for (const color of MASTER_TURN_ORDER) {
       const p = state.players[color];
-      // Skip bots and unregistered players
       if (!p || !p.username) continue; 
       
       scores[p.username] = {
@@ -327,41 +374,46 @@ const flushScoresToProfiles = async (gameId, state) => {
       };
     }
 
-    // Process each authenticated player
-    for (const username of Object.keys(scores)) {
-      const user = await User.findOne({ username });
-      if (!user) continue;
+    const allUsernames = Object.keys(scores);
+    if (allUsernames.length === 0) return;
 
-      const entry = scores[username];
-      const isWin = entry.winPosn === 1; // No draws; you either win or lose.
-      const result = isWin ? "win" : "loss";
+    const users = await User.find({ username: { $in: allUsernames } });
+    const bulkOps = [];
+
+    for (const user of users) {
+      const entry = scores[user.username];
       
-      // 1. Calculate Base Progress
-      const xpGain = isWin ? 750 : 200;
+      // 🐛 FIX: Dynamic XP scaling based on exact finishing position
+      let xpGain = 200;
+      if (entry.winPosn === 1) xpGain = 750;
+      else if (entry.winPosn === 2) xpGain = 500;
+      else if (entry.winPosn === 3) xpGain = 300;
+
       user.stats.xp += xpGain;
       user.stats.totalMatches += 1;
       
-      if (isWin) user.stats.wins += 1;
+      if (entry.winPosn === 1) user.stats.wins += 1;
       else user.stats.losses += 1;
 
-      // 2. Process Level Ups dynamically
       while (user.stats.xp >= user.stats.nextLevelXp) {
           user.stats.level += 1;
           user.stats.xp -= user.stats.nextLevelXp;
           user.stats.nextLevelXp = Math.floor(user.stats.nextLevelXp * 1.6);
       }
 
-      // 3. Update Win Rate string
       user.stats.winRate = user.stats.totalMatches > 0 
           ? ((user.stats.wins / user.stats.totalMatches) * 100).toFixed(1) + '%' 
           : "0%";
 
-      // 4. Update History (capping at 50 matches)
+      const opponentsList = allUsernames.filter(name => name !== user.username);
+      const opponentString = opponentsList.length > 0 ? opponentsList.join(", ") : "AI/Offline";
+
+      // 🐛 FIX: Save the actual position (1, 2, 3, 4) as a string
       user.stats.matchHistory.push({ 
           gameId, 
           date: new Date(), 
-          result, 
-          opponent: "Online Grid", 
+          result: entry.winPosn.toString(), // e.g., "1", "2", "3"
+          opponent: opponentString, 
           gameType 
       });
       
@@ -369,7 +421,16 @@ const flushScoresToProfiles = async (gameId, state) => {
           user.stats.matchHistory.shift();
       }
 
-      await user.save();
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: user._id },
+          update: { $set: { stats: user.stats } }
+        }
+      });
+    }
+
+    if (bulkOps.length > 0) {
+      await User.bulkWrite(bulkOps);
     }
 
     console.log(`[SCORE] ✅ Final scores calculated and flushed to profiles for game ${gameId}`);
@@ -381,7 +442,6 @@ const flushScoresToProfiles = async (gameId, state) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPORTED CONTROLLERS
 // ─────────────────────────────────────────────────────────────────────────────
-
 export const handlePofInit = async (io, socket) => {
   const gameId    = socket.player.gameId;
   const color     = socket.player.color;
@@ -635,7 +695,10 @@ export const handleSyncState = async (socket, { gameId, color }) => {
   }
 };
 
-export const handleRollDice = async (io, socket, { gameId, color }) => {
+export const handleRollDice = async (io, socket, payload) => {
+  const gameId = payload.gameId || socket.gameId;
+  const color = payload.color || socket.playerColor;
+
   if (socket.playerColor !== color) return;
 
   let diceValue, validPieces, needSkip = false;
@@ -643,8 +706,8 @@ export const handleRollDice = async (io, socket, { gameId, color }) => {
   await acquireLock(gameId);
   try {
     const state = await redisClient.json.get(`game:${gameId}`);
-    if (!state || state.meta.status === "FINISHED" ||
-        state.move.turn !== color || state.move.moving || !state.move.rollAllowed) return;
+    
+    if (!state || state.meta.status === "FINISHED" || state.move.turn !== color || state.move.moving || !state.move.rollAllowed) return;
 
     if (!state.meta.timeoutCounts) state.meta.timeoutCounts = {};
     state.meta.timeoutCounts[color] = 0;
@@ -662,6 +725,8 @@ export const handleRollDice = async (io, socket, { gameId, color }) => {
     if (!validPieces) {
       state.move.moveAllowed = false;
       needSkip = true;
+      state.move.timeOut = true; 
+      state.move.moving = true;
     } else {
       state.move.moveAllowed = true;
     }
@@ -687,7 +752,6 @@ export const handleRollDice = async (io, socket, { gameId, color }) => {
     releaseLock(gameId);
   }
 
-  // STEP 2: If no valid pieces, wait 2s for dice animation, then skip turn
   if (needSkip) {
     setTimeout(async () => {
       await acquireLock(gameId);
@@ -695,6 +759,8 @@ export const handleRollDice = async (io, socket, { gameId, color }) => {
         const delayedState = await redisClient.json.get(`game:${gameId}`);
         if (!delayedState || delayedState.meta.status === "FINISHED" || delayedState.move.turn !== color) return;
 
+        delayedState.move.timeOut       = false;
+        delayedState.move.moving        = false;
         delayedState.move.turn          = getNextTurn(color, delayedState.meta.onBoard);
         delayedState.move.rollAllowed   = true;
         delayedState.move.moveAllowed   = false;
@@ -718,13 +784,19 @@ export const handleRollDice = async (io, socket, { gameId, color }) => {
   }
 };
 
-export const handleMovePiece = async (io, socket, { gameId, color, pieceIdx, refNum }) => {
+export const handleMovePiece = async (io, socket, payload) => {
+  const gameId = payload.gameId || socket.gameId;
+  const color = payload.color || socket.playerColor;
+  const pieceIdx = payload.pieceIdx;
+  const refNum = payload.refNum;
+
   if (socket.playerColor !== color) return;
 
   await acquireLock(gameId);
   try {
     const state = await redisClient.json.get(`game:${gameId}`);
-    if (!state || state.meta.status === "FINISHED" || state.move.turn !== color || !state.move.moveAllowed) return;
+    
+    if (!state || state.meta.status === "FINISHED" || state.move.turn !== color || !state.move.moveAllowed || state.move.timeOut || state.move.moving) return;
 
     if (!state.meta.timeoutCounts) state.meta.timeoutCounts = {};
     state.meta.timeoutCounts[color] = 0;
@@ -763,7 +835,10 @@ export const handleMovePiece = async (io, socket, { gameId, color, pieceIdx, ref
   }
 };
 
-export const handleTurnTimeout = async (io, socket, { gameId, color }) => {
+export const handleTurnTimeout = async (io, socket, payload) => {
+  const gameId = payload.gameId || socket.gameId;
+  const color = payload.color || socket.playerColor;
+
   if (socket.playerColor !== color) return;
 
   await acquireLock(gameId);
@@ -814,15 +889,32 @@ export const handleDisconnect = (io, socket, reason) => {
       if (!state) return;
 
       if (state.meta.status === "FINISHED") {
-        return; // Prevent flushing twice if game was already flagged as finished
+        return; 
       } 
 
       const boardIndex = state.meta.onBoard.indexOf(color);
       if (boardIndex === -1) return;
 
+      let nextTurn = null;
+      if (state.move.turn === color && state.meta.status !== "FINISHED" && state.meta.onBoard.length >= 2) {
+        nextTurn = getNextTurn(color, state.meta.onBoard);
+      }
+
+      // 🐛 FIX: Catch the leaver's info before wiping them
+      const leaverUsername = state.players[color]?.username;
+      const gameType = state.meta.type;
+      const opponents = MASTER_TURN_ORDER
+        .map(c => state.players[c]?.username)
+        .filter(name => name && name !== leaverUsername);
+
       state.meta.onBoard.splice(boardIndex, 1);
       state.meta.playerCount = state.meta.onBoard.length;
       state.players[color]   = getSkeletonPlayer(color);
+
+      // 🐛 FIX: Apply the loss penalty immediately
+      if (leaverUsername) {
+        recordAbandonLoss(leaverUsername, gameId, gameType, opponents);
+      }
 
       if (state.meta.onBoard.length === 0) {
         await redisClient.del(`game:${gameId}`);
@@ -835,22 +927,23 @@ export const handleDisconnect = (io, socket, reason) => {
         return;
       }
 
-      // ===============================================
-      // DISCONNECT: CHECK IF GAME ENDS DUE TO PURGE
-      // ===============================================
       if (state.meta.status === "RUNNING" && state.meta.onBoard.length < 2) {
         state.meta.status      = "FINISHED";
         state.move.rollAllowed = false;
         state.move.moveAllowed = false;
         state.move.turn        = null;
         
+        // 🐛 FIX: Dynamically assign the next available win rank to the survivor
         const survivor = state.meta.onBoard[0];
-        if (state.players[survivor].winPosn === 0) state.players[survivor].winPosn = 1; // Crown survivor
+        if (survivor && state.players[survivor].winPosn === 0) {
+          state.meta.winLast += 1;
+          state.players[survivor].winPosn = state.meta.winLast; 
+        }
         if (turnTimers.has(gameId)) { clearTimeout(turnTimers.get(gameId)); turnTimers.delete(gameId); }
       }
 
-      if (state.move.turn === color && state.meta.status !== "FINISHED") {
-        state.move.turn          = getNextTurn(color, state.meta.onBoard);
+      if (nextTurn && state.meta.status !== "FINISHED") {
+        state.move.turn          = nextTurn;
         state.move.rollAllowed   = true;
         state.move.moveAllowed   = false;
         state.move.moveCount     = 0;
@@ -869,7 +962,6 @@ export const handleDisconnect = (io, socket, reason) => {
         syncArray: [state.meta.syncTick - 1, state.meta.syncTick]
       });
 
-      // Trigger flush if game just ended from disconnect
       if (state.meta.status === "FINISHED") {
         await flushScoresToProfiles(gameId, state); 
       }

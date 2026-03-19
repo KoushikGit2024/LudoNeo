@@ -1,5 +1,5 @@
 {
-  "name": "ludochampfrontend",
+  "name": "ludoneofrontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -19,7 +19,7 @@
     "framer-motion": "^12.23.26",
     "gsap": "^3.14.2",
     "lucide-react": "^0.563.0",
-    "ludochamp": "file:..",
+    "ludoneo": "file:..",
     "motion": "^12.29.2",
     "ogl": "^1.0.11",
     "react": "^19.1.1",

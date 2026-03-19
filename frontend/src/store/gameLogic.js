@@ -64,18 +64,15 @@ function initiateOfflineGameLogic(state, gameObj) {
   const genId = shortId(16);
   if (!["offline", "bot", "pof", "poi"].includes(gameObj.type)) return state;
   let userProfile;
-  // if(gameObj.type==="bot")
-  //   userProfile = useUserStore(state=>state.info.avatar)
   const players = {};
   const colors = ["#FF3131", "#00D4FF", "#ffc400", "#00FF14"];
   const masterOrder = ["R", "B", "Y", "G"];
   const onBoardPlayers = new Set(masterOrder.filter((el) => gameObj.players.includes(el)));
   gameObj.players=[...onBoardPlayers];
-  // console.log(gameObj)
+
   masterOrder.forEach((el, idx) => {
     let startIdx = { R: 79, B: 83, Y: 87, G: 91 }[el];
     const playerIndexInGameObj = onBoardPlayers.has(el);
-    // console.log(gameObj.botDifficulties[el],gameObj.names[idx])
     if (playerIndexInGameObj) {
       players[el] = {
         ...state.players[el], name: gameObj.names[el], username: "", profile: (gameObj.type==="bot" && gameObj.botDifficulties[el]===null)?gameObj.avatar:"/defaultProfile.png",
@@ -87,13 +84,7 @@ function initiateOfflineGameLogic(state, gameObj) {
       players[el] = getSkeletonPlayer(el);
     }
   });
-  // console.log(onBoardPlayers[0])
-  // console.log({
-  //   ...state,
-  //   move: { ...state.move, color: gameObj.players[0], playerIdx: 0, turn: gameObj.players[0], rollAllowed: true, moveCount: 0, ticks: 0, version: 0, moveAllowed: false, moving: false, timeOut: false },
-  //   meta: { ...state.meta, playerCount: gameObj.players.length, onBoard: onBoardPlayers, gameId: genId, status: "RUNNING", currentTurn: gameObj.players[0], gameStartedAt: [...state.meta.gameStartedAt, Date.now()], type: gameObj.type, color: "R", winLast: 0 },
-  //   players: { ...state.players, ...players },
-  // })
+
   return {
     ...state,
     move: { ...state.move, color: gameObj.players[0], playerIdx: 0, turn: gameObj.players[0], rollAllowed: true, moveCount: 0, ticks: 0, version: 0, moveAllowed: false, moving: false, timeOut: false },
@@ -166,11 +157,11 @@ const recordMatchStats = async (state) => {
     if (state.meta.type !== "offline" && state.meta.type !== "bot") return;
 
     const userColor = state.meta.color || "R";
-    const userDidWin = state.players[userColor].winPosn === 1;
 
     const statsPayload = {
         gameId: state.meta.gameId,
-        result: userDidWin ? 'win' : 'loss',
+        // 🐛 FIX: Now directly maps the local user's position (1, 2, 3, 4, or 0)
+        result: state.players[userColor].winPosn.toString(),
         opponent: state.meta.type === 'bot' ? 'A.I. Core' : 'Local Challenger',
         gameType: state.meta.type
     };
@@ -210,6 +201,7 @@ const gameActions = {
     const prevState = useGameStore.getState();
     useGameStore.setState((state) => endGameLogic(state), false, "endGame");
     
+    if(prevState.meta.type==="offline") return;
     // Process stats if the game was ended explicitly (e.g., player surrendered)
     const newState = useGameStore.getState();
     if (prevState.meta.status !== "FINISHED" && newState.meta.status === "FINISHED") {
@@ -219,11 +211,10 @@ const gameActions = {
 
   saveGameToDB: async (title) => {
     const state = useGameStore.getState();
-    console.log(state)
+    if(state.meta.status==="FINISHED") return;
     if (state.meta.type !== "offline" && state.meta.type !== "bot") return;
     
     const sanitizePlayer = (player, color) => {
-      console.log(state.meta.onBoard.has(color) , player , player.name)
       if (!state.meta.onBoard.has(color) || !player || !player.name) return getSkeletonPlayer(color);
       const sanitized = { ...player };
       if (sanitized.pieceRef instanceof Map) sanitized.pieceRef = Array.from(sanitized.pieceRef.entries());
@@ -236,7 +227,6 @@ const gameActions = {
       move: { playerIdx: state.move.playerIdx, turn: state.move.turn, moveCount: state.move.moveCount, rollAllowed: state.move.rollAllowed, ticks: state.move.ticks, moveAllowed: state.move.moveAllowed, moving: state.move.moving, timeOut: state.move.timeOut },
       players: { R: sanitizePlayer(state.players.R, "R"), B: sanitizePlayer(state.players.B, "B"), Y: sanitizePlayer(state.players.Y, "Y"), G: sanitizePlayer(state.players.G, "G") }
     };
-    console.log(payload);
     try {
       await api.post('/api/games/save', payload);
       toast.success(state.meta.status === "FINISHED" ? "Match results saved!" : "Game progress saved!", { theme: "dark" });

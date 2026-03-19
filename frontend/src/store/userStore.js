@@ -9,9 +9,9 @@ const useUserStore = create(
         (set, get) => ({
             // --- USER IDENTITY ---
             info: {
-                fullname: "New Pilot",
-                username: "identity_pending",
-                email: "user@ludoneo.game",
+                fullname: "",
+                username: "",
+                email: "",
                 avatar: "/defaultProfile.png",
                 isVerified: false,
                 notifications: [], 
