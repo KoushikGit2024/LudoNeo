@@ -35,11 +35,11 @@ const redisClient = createClient({
 // --- Event Listeners ---
 
 redisClient.on('connect', () => {
-    console.log(`🚀 Redis: Connected to ${isProduction ? 'Production' : 'Development'}`);
+    // console.log(`🚀 Redis: Connected to ${isProduction ? 'Production' : 'Development'}`);
 });
 
 redisClient.on('ready', () => {
-    console.log(!isProduction && redisUrl)
+    // console.log(!isProduction && redisUrl)
     console.log('✅ Redis: Client ready and RedisJSON enabled');
 });
 

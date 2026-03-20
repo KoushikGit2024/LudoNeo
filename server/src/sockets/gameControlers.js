@@ -27,11 +27,26 @@ const releaseLock = (gameId) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
-const getNextTurn = (currentColor, onBoard) => {
-  const onBoardSet = new Set(onBoard);
-  const activePlayers = MASTER_TURN_ORDER.filter(c => onBoardSet.has(c));
-  const currentIndex = activePlayers.indexOf(currentColor);
-  return activePlayers[(currentIndex + 1) % activePlayers.length];
+
+// 🐛 FIX: Robust turn switching that safely skips finished players
+const getNextTurn = (state, currentColor) => {
+  const activePlayers = MASTER_TURN_ORDER.filter(c => 
+    state.meta.onBoard.includes(c) && (state.players[c] ? state.players[c].winCount < 4 : false)
+  );
+  
+  if (activePlayers.length === 0) return null;
+  
+  const currentIndex = MASTER_TURN_ORDER.indexOf(currentColor);
+  
+  for (let i = 1; i <= 4; i++) {
+    const nextIndex = (currentIndex + i) % 4;
+    const nextColor = MASTER_TURN_ORDER[nextIndex];
+    if (activePlayers.includes(nextColor)) {
+        return nextColor;
+    }
+  }
+  
+  return activePlayers[0];
 };
 
 const generateShortId = (length = 16) => {
@@ -105,7 +120,9 @@ const applyPieceMove = (state, color, pieceIdx, moveCount) => {
   if (targetPathIdx === 56) {
     player.outCount  -= 1;
     player.winCount  += 1;
-    nextTurnBonus = true; 
+    
+    // 🐛 FIX: Only grant a bonus turn if they STILL have pieces left to move
+    nextTurnBonus = player.winCount < 4; 
 
     if (player.winCount === 4 && player.winPosn === 0) {
       state.meta.winLast += 1;
@@ -113,6 +130,12 @@ const applyPieceMove = (state, color, pieceIdx, moveCount) => {
       const targetCount = state.meta.targetPlayerCount || state.meta.playerCount;
       if (state.meta.winLast >= targetCount - 1) {
         state.meta.status = "FINISHED";
+        
+        // 🐛 FIX: Assign the final losing rank to the last remaining player
+        const survivor = state.meta.onBoard.find(c => state.players[c].winPosn === 0);
+        if (survivor) {
+            state.players[survivor].winPosn = state.meta.winLast + 1;
+        }
       }
     }
   }
@@ -130,8 +153,14 @@ const applyPieceMove = (state, color, pieceIdx, moveCount) => {
     state.players[c].pieceRef = Object.entries(refCounts).map(([ref, count]) => [Number(ref), count]);
   });
 
+  // 🐛 FIX: Properly reset sixes count if they successfully move a piece
+  if (moveCount !== 6) {
+      state.move.sixesCount = 0;
+  }
+
   if (state.meta.status !== "FINISHED" && !nextTurnBonus) {
-    state.move.turn = getNextTurn(color, state.meta.onBoard);
+    state.move.turn = getNextTurn(state, color);
+    state.move.sixesCount = 0; // Turn passing clears the streak
   }
 
   if (state.meta.status !== "FINISHED") {
@@ -167,7 +196,7 @@ const recordAbandonLoss = async (username, gameId, gameType, opponentsList) => {
     user.stats.matchHistory.push({ 
       gameId, 
       date: new Date(), 
-      result: "0", // 🐛 FIX: 0 indicates "Abandoned/DNF"
+      result: "0",
       opponent: opponentString, 
       gameType 
     });
@@ -212,7 +241,7 @@ const manageTurnTimer = (io, gameId, color) => {
       }
 
       if (skipCount >= AUTO_SKIP_LIMIT) {
-        const nextTurnColor = getNextTurn(color, state.meta.onBoard);
+        const nextTurnColor = getNextTurn(state, color);
 
         const leaverUsername = state.players[color]?.username;
         const gameType = state.meta.type;
@@ -242,9 +271,8 @@ const manageTurnTimer = (io, gameId, color) => {
           state.move.moveAllowed = false;
           state.move.turn        = null;
           
-          // 🐛 FIX: Dynamically assign the next available win rank to the survivor
-          const survivor = state.meta.onBoard[0];
-          if (survivor && state.players[survivor].winPosn === 0) {
+          const survivor = state.meta.onBoard.find(c => state.players[c].winPosn === 0);
+          if (survivor) {
             state.meta.winLast += 1;
             state.players[survivor].winPosn = state.meta.winLast; 
           }
@@ -254,6 +282,7 @@ const manageTurnTimer = (io, gameId, color) => {
           state.move.moveAllowed   = false;
           state.move.moveCount     = 0;
           state.move.ticks         = 0;
+          state.move.sixesCount    = 0; // Reset streak on AFK pass
           state.move.turnStartedAt = Date.now();
         }
 
@@ -273,7 +302,20 @@ const manageTurnTimer = (io, gameId, color) => {
         return;
       }
 
-      diceValue = Math.floor(Math.random() * 6) + 1;
+      // 🐛 FIX: Auto-roll respects the no-three-6s rule
+      if (!state.move.sixesCount) state.move.sixesCount = 0;
+      if (state.move.sixesCount === 2) {
+          diceValue = Math.floor(Math.random() * 5) + 1;
+      } else {
+          diceValue = Math.floor(Math.random() * 6) + 1;
+      }
+
+      if (diceValue === 6) {
+          state.move.sixesCount += 1;
+      } else {
+          state.move.sixesCount = 0;
+      }
+
       state.move.moveCount   = diceValue;
       state.move.rollAllowed = false;
       state.move.timeOut     = true;
@@ -312,10 +354,11 @@ const manageTurnTimer = (io, gameId, color) => {
         delayedState.move.moving = false;
 
         if (validPieces.length === 0) {
-          delayedState.move.turn          = getNextTurn(color, delayedState.meta.onBoard);
+          delayedState.move.turn          = getNextTurn(delayedState, color);
           delayedState.move.rollAllowed   = true;
           delayedState.move.moveAllowed   = false;
           delayedState.move.moveCount     = 0;
+          delayedState.move.sixesCount    = 0; // Turn passed, reset streak
           delayedState.move.turnStartedAt = Date.now();
           delayedState.meta.syncTick      = (delayedState.meta.syncTick || 0) + 1;
 
@@ -383,7 +426,6 @@ const flushScoresToProfiles = async (gameId, state) => {
     for (const user of users) {
       const entry = scores[user.username];
       
-      // 🐛 FIX: Dynamic XP scaling based on exact finishing position
       let xpGain = 200;
       if (entry.winPosn === 1) xpGain = 750;
       else if (entry.winPosn === 2) xpGain = 500;
@@ -408,11 +450,10 @@ const flushScoresToProfiles = async (gameId, state) => {
       const opponentsList = allUsernames.filter(name => name !== user.username);
       const opponentString = opponentsList.length > 0 ? opponentsList.join(", ") : "AI/Offline";
 
-      // 🐛 FIX: Save the actual position (1, 2, 3, 4) as a string
       user.stats.matchHistory.push({ 
           gameId, 
           date: new Date(), 
-          result: entry.winPosn.toString(), // e.g., "1", "2", "3"
+          result: entry.winPosn.toString(),
           opponent: opponentString, 
           gameType 
       });
@@ -434,6 +475,16 @@ const flushScoresToProfiles = async (gameId, state) => {
     }
 
     console.log(`[SCORE] ✅ Final scores calculated and flushed to profiles for game ${gameId}`);
+
+    // 🐛 FIX: Delete the game state from Redis once the game has successfully concluded
+    await redisClient.del(`game:${gameId}`);
+    
+    // Check if the waiting room ID is the same and clean it up if necessary
+    const waitingRoomId = await redisClient.get('poi_waiting_room');
+    if (waitingRoomId === gameId) {
+        await redisClient.del('poi_waiting_room');
+    }
+
   } catch (err) {
     console.error("❌ [SCORE] Failed to flush scores to profiles:", err);
   }
@@ -465,7 +516,7 @@ export const handlePofInit = async (io, socket) => {
           playerCount: 0, targetPlayerCount: boardSize, onBoard: [], syncTick: 0, timeoutCounts: {}
         },
         move: {
-          playerIdx: 0, turn: color, rollAllowed: true, moveCount: 0, ticks: 0,
+          playerIdx: 0, turn: color, rollAllowed: true, moveCount: 0, ticks: 0, sixesCount: 0,
           moveAllowed: false, moving: false, timeOut: false, turnStartedAt: Date.now()
         },
         players: {
@@ -477,6 +528,7 @@ export const handlePofInit = async (io, socket) => {
 
     if (!state.meta.targetPlayerCount) state.meta.targetPlayerCount = boardSize;
     if (!state.meta.timeoutCounts) state.meta.timeoutCounts = {};
+    if (state.move.sixesCount === undefined) state.move.sixesCount = 0;
 
     const normalizeSequence = (arr) => MASTER_TURN_ORDER.filter(c => new Set(arr).has(c));
 
@@ -559,7 +611,7 @@ export const handleJoinGame = async (io, socket, { type }) => {
             playerCount: 0, targetPlayerCount: 4, onBoard: [], syncTick: 0, timeoutCounts: {}
           },
           move: {
-            playerIdx: 0, turn: requestedColor || "R", rollAllowed: true, moveCount: 0, ticks: 0,
+            playerIdx: 0, turn: requestedColor || "R", rollAllowed: true, moveCount: 0, ticks: 0, sixesCount: 0,
             moveAllowed: false, moving: false, timeOut: false, turnStartedAt: Date.now()
           },
           players: {
@@ -570,6 +622,7 @@ export const handleJoinGame = async (io, socket, { type }) => {
       }
 
       if (!state.meta.timeoutCounts) state.meta.timeoutCounts = {};
+      if (state.move.sixesCount === undefined) state.move.sixesCount = 0;
 
       let assignedColor = null;
       for (const c of ["R", "B", "Y", "G"]) {
@@ -712,7 +765,21 @@ export const handleRollDice = async (io, socket, payload) => {
     if (!state.meta.timeoutCounts) state.meta.timeoutCounts = {};
     state.meta.timeoutCounts[color] = 0;
 
-    diceValue = Math.floor(Math.random() * 6) + 1;
+    // 🐛 FIX: Force 1-5 if they are about to roll their third 6
+    if (!state.move.sixesCount) state.move.sixesCount = 0;
+
+    if (state.move.sixesCount === 2) {
+        diceValue = Math.floor(Math.random() * 5) + 1;
+    } else {
+        diceValue = Math.floor(Math.random() * 6) + 1;
+    }
+
+    if (diceValue === 6) {
+        state.move.sixesCount += 1;
+    } else {
+        state.move.sixesCount = 0;
+    }
+
     state.move.moveCount   = diceValue;
     state.move.rollAllowed = false;
     state.move.ticks      += 1;
@@ -761,11 +828,12 @@ export const handleRollDice = async (io, socket, payload) => {
 
         delayedState.move.timeOut       = false;
         delayedState.move.moving        = false;
-        delayedState.move.turn          = getNextTurn(color, delayedState.meta.onBoard);
+        delayedState.move.turn          = getNextTurn(delayedState, color);
         delayedState.move.rollAllowed   = true;
         delayedState.move.moveAllowed   = false;
         delayedState.move.moveCount     = 0;
         delayedState.move.ticks         = 0;
+        delayedState.move.sixesCount    = 0; // Turn passed, reset streak
         delayedState.move.turnStartedAt = Date.now();
         delayedState.meta.syncTick      = (delayedState.meta.syncTick || 0) + 1;
 
@@ -846,11 +914,12 @@ export const handleTurnTimeout = async (io, socket, payload) => {
     const state = await redisClient.json.get(`game:${gameId}`);
     if (!state || state.move.turn !== color || state.meta.status === "FINISHED") return;
 
-    state.move.turn          = getNextTurn(color, state.meta.onBoard);
+    state.move.turn          = getNextTurn(state, color);
     state.move.rollAllowed   = true;
     state.move.moveAllowed   = false;
     state.move.moveCount     = 0;
     state.move.ticks         = 0;
+    state.move.sixesCount    = 0; // Streak reset manually by timeout
     state.move.timeOut       = true;
     state.move.turnStartedAt = Date.now();
 
@@ -897,10 +966,9 @@ export const handleDisconnect = (io, socket, reason) => {
 
       let nextTurn = null;
       if (state.move.turn === color && state.meta.status !== "FINISHED" && state.meta.onBoard.length >= 2) {
-        nextTurn = getNextTurn(color, state.meta.onBoard);
+        nextTurn = getNextTurn(state, color);
       }
 
-      // 🐛 FIX: Catch the leaver's info before wiping them
       const leaverUsername = state.players[color]?.username;
       const gameType = state.meta.type;
       const opponents = MASTER_TURN_ORDER
@@ -911,7 +979,6 @@ export const handleDisconnect = (io, socket, reason) => {
       state.meta.playerCount = state.meta.onBoard.length;
       state.players[color]   = getSkeletonPlayer(color);
 
-      // 🐛 FIX: Apply the loss penalty immediately
       if (leaverUsername) {
         recordAbandonLoss(leaverUsername, gameId, gameType, opponents);
       }
@@ -933,9 +1000,8 @@ export const handleDisconnect = (io, socket, reason) => {
         state.move.moveAllowed = false;
         state.move.turn        = null;
         
-        // 🐛 FIX: Dynamically assign the next available win rank to the survivor
-        const survivor = state.meta.onBoard[0];
-        if (survivor && state.players[survivor].winPosn === 0) {
+        const survivor = state.meta.onBoard.find(c => state.players[c].winPosn === 0);
+        if (survivor) {
           state.meta.winLast += 1;
           state.players[survivor].winPosn = state.meta.winLast; 
         }
@@ -948,6 +1014,7 @@ export const handleDisconnect = (io, socket, reason) => {
         state.move.moveAllowed   = false;
         state.move.moveCount     = 0;
         state.move.ticks         = 0;
+        state.move.sixesCount    = 0; // Streak reset on disconnect transfer
         state.move.turnStartedAt = Date.now();
         manageTurnTimer(io, gameId, state.move.turn);
       }

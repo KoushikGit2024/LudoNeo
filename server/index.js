@@ -57,13 +57,21 @@ app.use(cookieParser());
 app.use(requestLogger);
 
 // ===== MongoDB Connection =====
+
 connectMongo();
 
 // ===== Socket.io Setup =====
-const io = new Server(server, {cors:corsOptions});
 
-io.use((socket,next)=>socketGaurd(socket,next,io));
-registerGameHandlers(io);
+if (process.env.NODE_ENV !== "production") {
+    const io = new Server(server, { cors: corsOptions });
+
+    io.use((socket, next) => socketGaurd(socket, next, io));
+    registerGameHandlers(io);
+    
+    console.log("📡 Socket.io initialized (Development Mode)");
+} else {
+    console.log("🔇 Socket.io is disabled in Production");
+}
 
 // ===== HTTP Routes =====
 
@@ -100,5 +108,5 @@ app.use(errorHandler);
 
 // ===== Start Server =====
 server.listen(PORT, () => {
-    console.log(`🚀 Neural Link Server running on port: ${PORT}`);
+    console.log(`🚀 LudoNeo Server running on port: ${PORT}`);
 });
