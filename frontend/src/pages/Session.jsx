@@ -72,7 +72,7 @@ const Session = () => {
     }
     if(import.meta.env.PROD){
       toast.info("Mode unavailable due to resource limitations.")
-
+      navigate("/dashboard");
       return;
     }
 
